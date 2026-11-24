@@ -1,0 +1,64 @@
+---
+export interface HeadingEntry {
+  depth: number;
+  slug: string;
+  text: string;
+}
+
+export interface Props {
+  headings: HeadingEntry[];
+}
+
+const { headings } = Astro.props;
+const visible = headings.filter((h) => h.depth >= 2 && h.depth <= 3);
+---
+
+<aside class="docs-toc" aria-label="On this page">
+  {visible.length > 0 && (
+    <>
+      <p class="toc-heading">On this page</p>
+      <ul class="toc-list" data-cassini-toc>
+        {visible.map((h, idx) => (
+          <li class:list={["toc-item", `toc-depth-${h.depth}`]}>
+            <a href={`#${h.slug}`} class:list={[{ active: idx === 0 }]}>{h.text}</a>
+          </li>
+        ))}
+      </ul>
+    </>
+  )}
+</aside>
+
+<script is:inline>
+  (() => {
+    const toc = document.querySelector("[data-cassini-toc]");
+    if (!toc) return;
+    const links = Array.from(toc.querySelectorAll("a[href^='#']"));
+    const targets = links
+      .map((a) => {
+        const id = decodeURIComponent(a.getAttribute("href").slice(1));
+        const el = document.getElementById(id);
+        return el ? { a, el } : null;
+      })
+      .filter(Boolean);
+    if (targets.length === 0) return;
+
+    function setActive(activeLink) {
+      links.forEach((a) => a.classList.toggle("active", a === activeLink));
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const found = targets.find((t) => t.el === entry.target);
+            if (found) setActive(found.a);
+            break;
+          }
+        }
+      },
+      { rootMargin: "-72px 0px -70% 0px", threshold: 0 },
+    );
+
+    targets.forEach((t) => observer.observe(t.el));
+  })();
+</script>

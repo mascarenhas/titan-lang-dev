@@ -1,0 +1,26 @@
+---
+export interface Props {
+  projectLabel?: string;
+  licenseUrl?: string;
+  siteUrl?: string;
+  siteLabel?: string;
+}
+
+const {
+  projectLabel = "Titan Programming Language",
+  licenseUrl = "https://github.com/mascarenhas/titan/blob/master/LICENSE",
+  siteUrl = "https://titan-lang.dev/",
+  siteLabel = "titan-lang.dev",
+} = Astro.props;
+---
+
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <span>
+      {projectLabel} &middot; <a href={licenseUrl} rel="noopener noreferrer">MIT License</a>
+    </span>
+    <span>
+      <a href={siteUrl}>{siteLabel}</a>
+    </span>
+  </div>
+</footer>

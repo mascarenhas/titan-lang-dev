@@ -1,0 +1,23 @@
+{
+  "titan": {
+    "repo": "mascarenhas/titan",
+    "ref": "v0.6.1",
+    "sha": "704d481451661d87b1ddcd72638cac8db37718f5",
+    "version": "0.6.1",
+    "paths": [
+      "doc/language",
+      "doc/style-guide.md",
+      "doc/images/titan-logo.svg"
+    ]
+  },
+  "vscodeTitan": {
+    "repo": "mascarenhas/vscode-titan",
+    "ref": "main",
+    "sha": "11528ffbb3eae097781c683c8a831474e6dd2054",
+    "paths": [
+      "README.md",
+      "docs",
+      "syntaxes/titan.tmLanguage.json"
+    ]
+  }
+}

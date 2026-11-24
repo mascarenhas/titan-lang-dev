@@ -1,0 +1,30 @@
+---
+export interface NavItem {
+  title: string;
+  href: string;
+}
+
+export interface Props {
+  prev?: NavItem | null;
+  next?: NavItem | null;
+}
+
+const { prev, next } = Astro.props;
+---
+
+{(prev || next) && (
+  <nav class="prev-next" aria-label="Chapter pagination">
+    {prev && (
+      <a class="prev-next-card prev" href={prev.href}>
+        <span class="prev-next-label">← Previous</span>
+        <span class="prev-next-title">{prev.title}</span>
+      </a>
+    )}
+    {next && (
+      <a class="prev-next-card next" href={next.href}>
+        <span class="prev-next-label">Next →</span>
+        <span class="prev-next-title">{next.title}</span>
+      </a>
+    )}
+  </nav>
+)}

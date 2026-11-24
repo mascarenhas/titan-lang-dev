@@ -1,0 +1,30 @@
+{
+  "name": "titan-lang-dev",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/cassini"
+  ],
+  "scripts": {
+    "fetch-sources": "node scripts/fetch-sources.mjs",
+    "dev": "node scripts/fetch-sources.mjs && astro dev",
+    "build:site": "node scripts/fetch-sources.mjs && astro build",
+    "build:pdf": "node scripts/fetch-sources.mjs && node scripts/build-pdf.mjs",
+    "build:search": "npx --no-install pagefind --site dist",
+    "build": "node scripts/fetch-sources.mjs && node scripts/build-pdf.mjs && astro build && npx --no-install pagefind --site dist",
+    "preview": "astro preview",
+    "verify:site": "node scripts/verify-site.mjs",
+    "verify:pdf": "${PYTHON_BIN:-python3} scripts/verify-pdf.py --dist dist --site-origin https://titan-lang.dev --meta .generated/pdf-meta.json dist/titan-programming-language.pdf",
+    "verify": "npm run verify:site && npm run verify:pdf"
+  },
+  "dependencies": {
+    "@astrojs/markdown-remark": "^7.3.10",
+    "@titan-lang/cassini": "*",
+    "astro": "^7.4.13"
+  },
+  "devDependencies": {
+    "pagefind": "^1.6.0",
+    "wrangler": "^4.0.0"
+  }
+}

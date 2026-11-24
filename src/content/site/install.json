@@ -1,0 +1,74 @@
+[
+  {
+    "id": "linux",
+    "label": "Linux",
+    "steps": [
+      {
+        "num": "01",
+        "label": "Lua 5.5.1 (Titan fork)",
+        "commands": "export PREFIX=\"$HOME/.local/titan/my-project\"\ncurl -fL -o lua-titan.tar.gz \\\n  https://github.com/mascarenhas/lua-5.5.1/archive/refs/tags/v5.5.1-1.tar.gz\ntar zxf lua-titan.tar.gz && (cd lua-5.5.1-5.5.1-1 &&\n  make linux-readline PREFIX=\"$PREFIX\" && make install PREFIX=\"$PREFIX\")"
+      },
+      {
+        "num": "02",
+        "label": "LuaRocks 3.13.0",
+        "commands": "curl -fLO https://luarocks.github.io/luarocks/releases/luarocks-3.13.0.tar.gz\ntar zxf luarocks-3.13.0.tar.gz && (cd luarocks-3.13.0 &&\n  ./configure --prefix=\"$PREFIX\" --rocks-tree=\"$PREFIX\" \\\n    --with-lua=\"$PREFIX\" --force-config && make && make install)"
+      },
+      {
+        "num": "03",
+        "label": "Titan from LuaRocks",
+        "commands": "export PATH=\"$PREFIX/bin:$PATH\"\nluarocks install titan\ntitanc --print-root"
+      }
+    ],
+    "note": "Requires gcc/clang, make, cmake, git, readline-dev, openssl-dev, and pkg-config.",
+    "docsLabel": "Full Linux & macOS guide",
+    "docsHref": "/book/installation/"
+  },
+  {
+    "id": "macos",
+    "label": "macOS",
+    "steps": [
+      {
+        "num": "01",
+        "label": "Prerequisites & Lua 5.5.1",
+        "commands": "brew install cmake readline openssl@3 pkgconf\nexport PREFIX=\"$HOME/.local/titan/my-project\"\ncurl -fL -o lua-titan.tar.gz \\\n  https://github.com/mascarenhas/lua-5.5.1/archive/refs/tags/v5.5.1-1.tar.gz\ntar zxf lua-titan.tar.gz && (cd lua-5.5.1-5.5.1-1 &&\n  make macosx PREFIX=\"$PREFIX\" \\\n    MYCFLAGS=\"-I$(brew --prefix readline)/include\" \\\n    MYLDFLAGS=\"-L$(brew --prefix readline)/lib\" &&\n  make install PREFIX=\"$PREFIX\")"
+      },
+      {
+        "num": "02",
+        "label": "LuaRocks 3.13.0",
+        "commands": "curl -fLO https://luarocks.github.io/luarocks/releases/luarocks-3.13.0.tar.gz\ntar zxf luarocks-3.13.0.tar.gz && (cd luarocks-3.13.0 &&\n  ./configure --prefix=\"$PREFIX\" --rocks-tree=\"$PREFIX\" \\\n    --with-lua=\"$PREFIX\" --force-config && make && make install)"
+      },
+      {
+        "num": "03",
+        "label": "Titan from LuaRocks",
+        "commands": "export PATH=\"$PREFIX/bin:$PATH\"\nluarocks install titan\ntitanc --print-root"
+      }
+    ],
+    "note": "Xcode Command Line Tools provides clang, git, curl, tar, and shasum. Homebrew readline is keg-only, so MYCFLAGS/MYLDFLAGS point Lua at it.",
+    "docsLabel": "Full Linux & macOS guide",
+    "docsHref": "/book/installation/"
+  },
+  {
+    "id": "windows",
+    "label": "Windows",
+    "steps": [
+      {
+        "num": "01",
+        "label": "MSYS2 CLANG64 & OpenSSL",
+        "commands": "pacman -S mingw-w64-clang-x86_64-openssl"
+      },
+      {
+        "num": "02",
+        "label": "Clone Titan v0.6.1",
+        "commands": "git clone --branch v0.6.1 --recurse-submodules \\\n  https://github.com/mascarenhas/titan.git\ncd titan"
+      },
+      {
+        "num": "03",
+        "label": "Build SDK & Compiler",
+        "commands": "mingw32-make -f Makefile.win lua PREFIX=/c/Titan/sdk\nmingw32-make -f Makefile.win luarocks PREFIX=/c/Titan/sdk\nmingw32-make -f Makefile.win compiler PREFIX=/c/Titan/sdk"
+      }
+    ],
+    "note": "The native x64 Windows port is experimental. Run from MSYS2 CLANG64 (with UCRT Clang, CMake, Ninja, Perl, and OpenSSL 3+ SDK installed, or pass OPENSSL_MODE=bundled); keep Lua SDK and LuaRocks tree in the same physical directory.",
+    "docsLabel": "Full Windows build guide",
+    "docsHref": "/book/windows-build/"
+  }
+]

@@ -1,0 +1,137 @@
+---
+import BaseLayout from "./BaseLayout.astro";
+import Sidebar, { type SidebarGroup, type SidebarCta } from "../components/Sidebar.astro";
+import OnPageToc, { type HeadingEntry } from "../components/OnPageToc.astro";
+import PrevNext, { type NavItem } from "../components/PrevNext.astro";
+import type { NavLink } from "../components/Header.astro";
+
+export interface Props {
+  title: string;
+  pageTitle?: string;
+  description?: string;
+  brandName?: string;
+  projectLabel?: string;
+  logoSrc?: string;
+  versionBadge?: string;
+  navLinks: NavLink[];
+  githubUrl: string;
+  siteUrl?: string;
+  siteLabel?: string;
+  licenseUrl?: string;
+  searchPlaceholder?: string;
+  sidebarGroups: SidebarGroup[];
+  sidebarCta?: SidebarCta;
+  headings?: HeadingEntry[];
+  prev?: NavItem | null;
+  next?: NavItem | null;
+  sectionLabel?: string;
+  kicker?: string;
+  headerAction?: {
+    label: string;
+    href: string;
+  };
+}
+
+const {
+  title,
+  pageTitle,
+  description,
+  brandName = "Titan",
+  projectLabel,
+  logoSrc = "/assets/titan-logo.svg",
+  versionBadge,
+  navLinks,
+  githubUrl,
+  siteUrl,
+  siteLabel,
+  licenseUrl,
+  searchPlaceholder,
+  sidebarGroups,
+  sidebarCta,
+  headings = [],
+  prev = null,
+  next = null,
+  sectionLabel,
+  kicker,
+  headerAction,
+} = Astro.props;
+---
+
+<BaseLayout
+  title={pageTitle || `${title} — ${brandName}`}
+  description={description}
+  brandName={brandName}
+  projectLabel={projectLabel}
+  logoSrc={logoSrc}
+  versionBadge={versionBadge}
+  navLinks={navLinks}
+  githubUrl={githubUrl}
+  siteUrl={siteUrl}
+  siteLabel={siteLabel}
+  licenseUrl={licenseUrl}
+  searchPlaceholder={searchPlaceholder}
+  hasSidebar={true}
+>
+  <div class="docs-shell">
+    <Sidebar groups={sidebarGroups} currentPath={Astro.url.pathname} cta={sidebarCta} navLinks={navLinks} />
+
+    <main
+      class="docs-main"
+      data-pagefind-body
+      data-pagefind-meta={sectionLabel ? `section:${sectionLabel}` : undefined}
+    >
+      {(kicker || headerAction) && (
+        <div class="docs-meta-bar" data-pagefind-ignore>
+          {kicker ? <div class="kicker">{kicker}</div> : <span />}
+          {headerAction && (
+            <a class="pdf-chip" href={headerAction.href}>
+              {headerAction.label}
+            </a>
+          )}
+        </div>
+      )}
+      <article class="prose cassini-prose">
+        <slot />
+      </article>
+      <PrevNext prev={prev} next={next} />
+    </main>
+
+    <OnPageToc headings={headings} />
+  </div>
+
+  <script is:inline>
+    (() => {
+      document.querySelectorAll(".cassini-prose pre.astro-code").forEach((pre) => {
+        if (pre.parentElement?.classList.contains("cassini-code")) return;
+        const lang = (pre.getAttribute("data-language") || "").trim();
+        const wrap = document.createElement("div");
+        wrap.className = "cassini-code";
+        const header = document.createElement("div");
+        header.className = "cassini-code-header";
+        header.setAttribute("data-pagefind-ignore", "");
+        const langSpan = document.createElement("span");
+        langSpan.className = "cassini-code-lang";
+        langSpan.textContent = lang && lang !== "plaintext" && lang !== "text" ? lang : "text";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "copy-btn";
+        btn.textContent = "Copy";
+        btn.addEventListener("click", async () => {
+          const text = pre.textContent || "";
+          try {
+            await navigator.clipboard.writeText(text);
+            btn.textContent = "Copied";
+            setTimeout(() => {
+              btn.textContent = "Copy";
+            }, 1500);
+          } catch {
+            btn.textContent = "Select & Copy";
+          }
+        });
+        header.append(langSpan, btn);
+        pre.parentNode?.insertBefore(wrap, pre);
+        wrap.append(header, pre);
+      });
+    })();
+  </script>
+</BaseLayout>

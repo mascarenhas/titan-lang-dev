@@ -1,0 +1,113 @@
+---
+import { normalizePathname } from "../nav/index.mjs";
+import type { NavLink } from "./Header.astro";
+
+export interface SidebarItem {
+  title: string;
+  href: string;
+  subgroup?: string;
+}
+
+export interface SidebarGroup {
+  title: string;
+  collapsed?: boolean;
+  items: SidebarItem[];
+}
+
+export interface SidebarCta {
+  label: string;
+  sublabel?: string;
+  href: string;
+}
+
+export interface Props {
+  groups: SidebarGroup[];
+  currentPath: string;
+  cta?: SidebarCta;
+  navLinks?: NavLink[];
+}
+
+const { groups, currentPath, cta, navLinks = [] } = Astro.props;
+const normCurrent = normalizePathname(currentPath);
+
+function groupHasActive(group: SidebarGroup): boolean {
+  return group.items.some((item) => normalizePathname(item.href) === normCurrent);
+}
+---
+
+<aside class="docs-sidebar" id="cassini-sidebar" aria-label="Section navigation">
+  {navLinks.length > 0 && (
+    <nav class="sidebar-site-nav" aria-label="Site sections">
+      {navLinks.map((link) => {
+        const active = link.matchPrefix
+          ? currentPath === link.matchPrefix || currentPath.startsWith(link.matchPrefix)
+          : currentPath === link.href;
+        return (
+          <a href={link.href} aria-current={active ? "page" : undefined}>
+            {link.label}
+          </a>
+        );
+      })}
+    </nav>
+  )}
+  {cta && (
+    <a class="sidebar-cta" href={cta.href}>
+      <span>
+        {cta.label}
+        {cta.sublabel && <span class="sidebar-cta-sub">{cta.sublabel}</span>}
+      </span>
+      <span aria-hidden="true">↓</span>
+    </a>
+  )}
+
+  <nav>
+    {groups.map((group) => {
+      const open = !group.collapsed || groupHasActive(group);
+      let lastSubgroup: string | undefined = undefined;
+      return (
+        <details class="sidebar-group" open={open}>
+          <summary>{group.title}</summary>
+          <ul class="sidebar-list">
+            {group.items.map((item) => {
+              const showSub = item.subgroup && item.subgroup !== lastSubgroup;
+              if (item.subgroup) lastSubgroup = item.subgroup;
+              const isCurrent = normalizePathname(item.href) === normCurrent;
+              return (
+                <>
+                  {showSub && <li class="sidebar-subgroup" role="presentation">{item.subgroup}</li>}
+                  <li>
+                    <a
+                      class="sidebar-link"
+                      href={item.href}
+                      aria-current={isCurrent ? "page" : undefined}
+                    >
+                      {item.title}
+                    </a>
+                  </li>
+                </>
+              );
+            })}
+          </ul>
+        </details>
+      );
+    })}
+  </nav>
+</aside>
+
+<script is:inline>
+  (() => {
+    const btn = document.getElementById("cassini-sidebar-toggle");
+    const sidebar = document.getElementById("cassini-sidebar");
+    if (!btn || !sidebar) return;
+    btn.addEventListener("click", () => {
+      const open = sidebar.classList.toggle("is-open");
+      btn.setAttribute("aria-expanded", String(open));
+    });
+    sidebar.querySelectorAll("a").forEach((a) => {
+      a.addEventListener("click", () => {
+        sidebar.classList.remove("is-open");
+        btn.setAttribute("aria-expanded", "false");
+      });
+    });
+  })();
+</script>

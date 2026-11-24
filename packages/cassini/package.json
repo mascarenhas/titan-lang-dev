@@ -1,0 +1,37 @@
+{
+  "name": "@titan-lang/cassini",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./shiki": "./src/shiki/index.mjs",
+    "./shiki/cassini-dark": "./src/shiki/cassini-dark.mjs",
+    "./shiki/cassini-print": "./src/shiki/cassini-print.mjs",
+    "./markdown": "./src/markdown/remark-cassini-docs.mjs",
+    "./nav": "./src/nav/index.mjs",
+    "./nav/book-toc": "./src/nav/book-toc.mjs",
+    "./pdf": "./src/pdf/build-book.mjs",
+    "./pdf/theme.typ": "./src/pdf/theme.typ",
+    "./styles/tokens.css": "./src/styles/tokens.css",
+    "./styles/theme.css": "./src/styles/theme.css",
+    "./layouts/BaseLayout.astro": "./src/layouts/BaseLayout.astro",
+    "./layouts/DocsLayout.astro": "./src/layouts/DocsLayout.astro",
+    "./components/Header.astro": "./src/components/Header.astro",
+    "./components/Footer.astro": "./src/components/Footer.astro",
+    "./components/Sidebar.astro": "./src/components/Sidebar.astro",
+    "./components/OnPageToc.astro": "./src/components/OnPageToc.astro",
+    "./components/PrevNext.astro": "./src/components/PrevNext.astro",
+    "./components/InstallTabs.astro": "./src/components/InstallTabs.astro",
+    "./components/SearchModal.astro": "./src/components/SearchModal.astro"
+  },
+  "dependencies": {
+    "beautiful-mermaid": "^1.1.3",
+    "github-slugger": "^2.0.0",
+    "mdast-util-to-string": "^4.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "shiki": "^4.6.0",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.2.0"
+  }
+}

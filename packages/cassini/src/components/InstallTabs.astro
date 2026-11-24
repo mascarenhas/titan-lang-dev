@@ -1,0 +1,152 @@
+---
+export interface InstallStep {
+  num: string;
+  label: string;
+  commands: string;
+}
+
+export interface InstallPlatform {
+  id: string;
+  label: string;
+  steps?: InstallStep[];
+  commands?: string;
+  note?: string;
+  docsLabel: string;
+  docsHref: string;
+}
+
+export interface Props {
+  heading?: string;
+  kicker?: string;
+  platforms: InstallPlatform[];
+}
+
+const { heading = "Install Titan", kicker, platforms } = Astro.props;
+
+function getCopyPayload(platform: InstallPlatform): string {
+  if (platform.commands) return platform.commands;
+  return (platform.steps || [])
+    .map((s) => `# ${s.num}. ${s.label}\n${s.commands}`)
+    .join("\n\n");
+}
+---
+
+<section class="install-section" id="install" aria-labelledby="install-heading" data-install-tabs>
+  <div class="install-section-head">
+    <h2 id="install-heading">{heading}</h2>
+    {kicker && <span class="kicker" style="margin:0;">{kicker}</span>}
+  </div>
+
+  <div class="install-card">
+    <div class="install-header">
+      <div class="install-tabs" role="tablist" aria-label="Install platforms">
+        {platforms.map((platform, idx) => (
+          <button
+            type="button"
+            class="install-tab"
+            role="tab"
+            id={`install-tab-${platform.id}`}
+            aria-controls={`install-panel-${platform.id}`}
+            aria-selected={idx === 0 ? "true" : "false"}
+            tabindex={idx === 0 ? 0 : -1}
+            data-tab-id={platform.id}
+          >
+            {platform.label}
+          </button>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        class="copy-btn"
+        data-install-copy
+      >
+        Copy all
+      </button>
+    </div>
+
+    {platforms.map((platform, idx) => (
+      <div
+        class="install-panel"
+        role="tabpanel"
+        id={`install-panel-${platform.id}`}
+        aria-labelledby={`install-tab-${platform.id}`}
+        data-panel-id={platform.id}
+        data-copy-payload={getCopyPayload(platform)}
+        hidden={idx !== 0}
+      >
+        {platform.steps && platform.steps.length > 0 ? (
+          <ol class="install-steps">
+            {platform.steps.map((step) => (
+              <li class="install-step">
+                <div class="install-step-label">
+                  <span class="install-step-num">{step.num}</span>
+                  <span>{step.label}</span>
+                </div>
+                <pre><code>{step.commands}</code></pre>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div class="install-step">
+            <pre><code>{platform.commands}</code></pre>
+          </div>
+        )}
+
+        <div class="install-footer">
+          <span>{platform.note || ""}</span>
+          <a href={platform.docsHref}>{platform.docsLabel} →</a>
+        </div>
+      </div>
+    ))}
+  </div>
+</section>
+
+<script is:inline>
+  (() => {
+    document.querySelectorAll("[data-install-tabs]").forEach((root) => {
+      const tabs = Array.from(root.querySelectorAll("[role='tab']"));
+      const panels = Array.from(root.querySelectorAll("[role='tabpanel']"));
+      const copyBtn = root.querySelector("[data-install-copy]");
+
+      function selectTab(id) {
+        tabs.forEach((tab) => {
+          const active = tab.getAttribute("data-tab-id") === id;
+          tab.setAttribute("aria-selected", String(active));
+          tab.tabIndex = active ? 0 : -1;
+        });
+        panels.forEach((panel) => {
+          panel.hidden = panel.getAttribute("data-panel-id") !== id;
+        });
+      }
+
+      tabs.forEach((tab, idx) => {
+        tab.addEventListener("click", () => selectTab(tab.getAttribute("data-tab-id")));
+        tab.addEventListener("keydown", (e) => {
+          if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+            e.preventDefault();
+            const next = e.key === "ArrowRight" ? (idx + 1) % tabs.length : (idx - 1 + tabs.length) % tabs.length;
+            tabs[next].focus();
+            selectTab(tabs[next].getAttribute("data-tab-id"));
+          }
+        });
+      });
+
+      if (copyBtn) {
+        copyBtn.addEventListener("click", async () => {
+          const activePanel = panels.find((p) => !p.hidden) || panels[0];
+          const text = activePanel?.getAttribute("data-copy-payload") || "";
+          try {
+            await navigator.clipboard.writeText(text);
+            copyBtn.textContent = "Copied";
+            setTimeout(() => {
+              copyBtn.textContent = "Copy all";
+            }, 1500);
+          } catch {
+            copyBtn.textContent = "Select & Copy";
+          }
+        });
+      }
+    });
+  })();
+</script>

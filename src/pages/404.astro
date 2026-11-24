@@ -1,0 +1,36 @@
+---
+import BaseLayout from "@titan-lang/cassini/layouts/BaseLayout.astro";
+import { SITE } from "../site.config.mjs";
+---
+
+<BaseLayout
+  title={`Page Not Found — ${SITE.brandName}`}
+  description="The requested page could not be found on titan-lang.dev."
+  brandName={SITE.brandName}
+  projectLabel={SITE.projectLabel}
+  logoSrc={SITE.logoSrc}
+  versionBadge={SITE.versionBadge}
+  navLinks={SITE.navLinks}
+  githubUrl={SITE.githubUrl}
+  siteUrl={SITE.siteUrl}
+  siteLabel={SITE.siteLabel}
+  licenseUrl={SITE.licenseUrl}
+  searchPlaceholder={SITE.searchPlaceholder}
+>
+  <main class="single-page">
+    <div class="not-found-box">
+      <p class="not-found-code">404 · Not Found</p>
+      <h1 style="margin:0.6rem 0 0.75rem;font-family:var(--font-display);font-weight:400;color:var(--ink-display);">
+        This page is outside Saturn's rings.
+      </h1>
+      <p style="margin:0 auto 1.65rem;max-width:30rem;color:var(--ink-secondary);">
+        The documentation page or asset you requested doesn't exist at this address.
+      </p>
+      <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:0.75rem;">
+        <a class="btn btn-primary" href="/">Home</a>
+        <a class="btn" href="/book/">Read the Book</a>
+        <a class="btn" href="/vscode/">VS Code &amp; LSP</a>
+      </div>
+    </div>
+  </main>
+</BaseLayout>

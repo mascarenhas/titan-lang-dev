@@ -1,0 +1,136 @@
+---
+export interface NavLink {
+  label: string;
+  href: string;
+  matchPrefix?: string;
+}
+
+export interface Props {
+  brandName: string;
+  logoSrc: string;
+  versionBadge?: string;
+  navLinks: NavLink[];
+  githubUrl: string;
+  currentPath: string;
+  hasSidebar?: boolean;
+}
+
+const {
+  brandName,
+  logoSrc,
+  versionBadge,
+  navLinks,
+  githubUrl,
+  currentPath,
+  hasSidebar = false,
+} = Astro.props;
+
+function isActive(link: NavLink, pathname: string): boolean {
+  if (link.matchPrefix) {
+    return pathname === link.matchPrefix || pathname.startsWith(link.matchPrefix);
+  }
+  return pathname === link.href;
+}
+---
+
+<header class:list={["site-header", hasSidebar && "site-header--reader"]}>
+  <div class="site-header-inner">
+    <div class="header-left">
+      {hasSidebar && (
+        <button
+          type="button"
+          class="mobile-menu-btn"
+          id="cassini-sidebar-toggle"
+          aria-controls="cassini-sidebar"
+          aria-expanded="false"
+        >
+          Menu
+        </button>
+      )}
+      <a class="brand-link" href="/">
+        <img src={logoSrc} alt="" width="24" height="24" />
+        <span>{brandName}</span>
+        {versionBadge && <span class="brand-version">{versionBadge}</span>}
+      </a>
+    </div>
+
+    <nav class="site-nav" aria-label="Main navigation">
+      {navLinks.map((link) => {
+        const active = isActive(link, currentPath);
+        return (
+          <a href={link.href} aria-current={active ? "page" : undefined}>
+            {link.label}
+          </a>
+        );
+      })}
+    </nav>
+
+    <div class="header-actions">
+      <button
+        type="button"
+        class="search-trigger"
+        data-search-open
+        aria-label="Search documentation"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.8" />
+          <path d="M10.8 10.8L14.2 14.2" stroke-linecap="round" />
+        </svg>
+        <span class="search-label">Search docs…</span>
+        <kbd>⌘K</kbd>
+      </button>
+
+      <a
+        class="nav-icon-btn nav-icon-btn--square"
+        href={githubUrl}
+        aria-label="GitHub repository"
+        rel="noopener noreferrer"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
+        </svg>
+      </a>
+
+      <button
+        type="button"
+        class="nav-icon-btn"
+        id="cassini-theme-toggle"
+        aria-label="Switch color theme"
+        aria-pressed="false"
+      >
+        Paper
+      </button>
+    </div>
+  </div>
+</header>
+
+<script is:inline>
+  (() => {
+    const btn = document.getElementById("cassini-theme-toggle");
+    if (!btn) return;
+    function sync() {
+      const isLight = document.documentElement.dataset.theme === "light";
+      btn.textContent = isLight ? "Obsidian" : "Paper";
+      btn.setAttribute("aria-pressed", String(isLight));
+      btn.setAttribute(
+        "aria-label",
+        isLight ? "Switch to Cassini Dark theme" : "Switch to Archival Paper light theme",
+      );
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute("content", isLight ? "#f7f4ec" : "#080a07");
+    }
+    sync();
+    btn.addEventListener("click", () => {
+      const nextLight = document.documentElement.dataset.theme !== "light";
+      if (nextLight) {
+        document.documentElement.dataset.theme = "light";
+      } else {
+        delete document.documentElement.dataset.theme;
+      }
+      try {
+        localStorage.setItem("cassini-theme", nextLight ? "light" : "dark");
+      } catch {}
+      sync();
+    });
+  })();
+</script>

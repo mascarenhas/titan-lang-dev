@@ -1,0 +1,140 @@
+---
+// Pagefind 1.6 Search Modal — lazy-loads /pagefind/pagefind.js on first open.
+export interface Props {
+  placeholder?: string;
+  emptyHint?: string;
+}
+
+const {
+  placeholder = "Search documentation...",
+  emptyHint = "Type to search across all chapters and reference pages.",
+} = Astro.props;
+---
+
+<dialog
+  class="search-dialog"
+  id="cassini-search-dialog"
+  aria-label="Search documentation"
+  data-empty-hint={emptyHint}
+>
+  <div class="search-dialog-head">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+      <circle cx="7" cy="7" r="4.8" />
+      <path d="M10.8 10.8L14.2 14.2" stroke-linecap="round" />
+    </svg>
+    <input
+      type="search"
+      class="search-input"
+      id="cassini-search-input"
+      placeholder={placeholder}
+      autocomplete="off"
+      spellcheck="false"
+    />
+    <button type="button" class="search-close-btn" id="cassini-search-close">ESC</button>
+  </div>
+  <div class="search-results" id="cassini-search-results" role="region" aria-live="polite">
+    <p class="search-status">{emptyHint}</p>
+  </div>
+</dialog>
+
+<script is:inline>
+  (() => {
+    const dialog = document.getElementById("cassini-search-dialog");
+    const input = document.getElementById("cassini-search-input");
+    const closeBtn = document.getElementById("cassini-search-close");
+    const resultsEl = document.getElementById("cassini-search-results");
+    if (!dialog || !input || !resultsEl) return;
+
+    let pagefindPromise = null;
+    let timer = null;
+
+    async function getPagefind() {
+      if (!pagefindPromise) {
+        const pagefindUrl = "/pagefind/pagefind.js";
+        pagefindPromise = import(/* @vite-ignore */ pagefindUrl)
+          .then(async (mod) => {
+            if (typeof mod.init === "function") await mod.init();
+            return mod;
+          })
+          .catch(() => null);
+      }
+      return pagefindPromise;
+    }
+
+    function openModal() {
+      if (!dialog.open) dialog.showModal();
+      input.focus();
+      input.select();
+      getPagefind();
+    }
+
+    function closeModal() {
+      if (dialog.open) dialog.close();
+    }
+
+    document.querySelectorAll("[data-search-open]").forEach((btn) => {
+      btn.addEventListener("click", openModal);
+    });
+    if (closeBtn) closeBtn.addEventListener("click", closeModal);
+    dialog.addEventListener("click", (e) => {
+      if (e.target === dialog) closeModal();
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (dialog.open) closeModal();
+        else openModal();
+      } else if (
+        e.key === "/" &&
+        !dialog.open &&
+        !/^(INPUT|TEXTAREA|SELECT)$/i.test(document.activeElement?.tagName || "") &&
+        !document.activeElement?.isContentEditable
+      ) {
+        e.preventDefault();
+        openModal();
+      }
+    });
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    }
+
+    async function runSearch(query) {
+      const q = query.trim();
+      if (!q) {
+        const hint = dialog.getAttribute("data-empty-hint") || "Type to search.";
+        resultsEl.innerHTML = `<p class="search-status">${escapeHtml(hint)}</p>`;
+        return;
+      }
+      const pf = await getPagefind();
+      if (!pf) {
+        resultsEl.innerHTML = '<p class="search-status">Search index is generated on production builds (<code>npm run build</code>).</p>';
+        return;
+      }
+      const search = await pf.search(q);
+      const top = await Promise.all(search.results.slice(0, 12).map((r) => r.data()));
+      if (top.length === 0) {
+        resultsEl.innerHTML = `<p class="search-status">No results for "${escapeHtml(q)}".</p>`;
+        return;
+      }
+      resultsEl.innerHTML =
+        '<div class="search-result-list">' +
+        top
+          .map((item) => {
+            const title = escapeHtml(item.meta?.title || item.url);
+            const section = item.meta?.section ? `<span class="search-result-section">${escapeHtml(item.meta.section)}</span>` : "";
+            const url = escapeHtml(item.url);
+            const excerpt = item.excerpt || "";
+            return `<a class="search-result-item" href="${url}"><div class="search-result-title"><span>${title}</span>${section}</div><p class="search-result-excerpt">${excerpt}</p></a>`;
+          })
+          .join("") +
+        "</div>";
+    }
+
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => runSearch(input.value), 120);
+    });
+  })();
+</script>

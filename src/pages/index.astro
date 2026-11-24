@@ -1,0 +1,180 @@
+---
+import path from "node:path";
+import { Code } from "astro:components";
+import BaseLayout from "@titan-lang/cassini/layouts/BaseLayout.astro";
+import InstallTabs from "@titan-lang/cassini/components/InstallTabs.astro";
+import {
+  cassiniDarkTheme,
+  cassiniPrintTheme,
+  loadTitanLanguage,
+} from "@titan-lang/cassini/shiki";
+import { PDF_META, SITE } from "../site.config.mjs";
+import installPlatforms from "../content/site/install.json";
+
+const titanLang = loadTitanLanguage(
+  path.join(process.cwd(), ".generated/sources/vscode-titan/syntaxes/titan.tmLanguage.json"),
+);
+
+const helloCode = `local io = import "io"
+
+function main(args: {string}): integer
+  local name = args[1] or "world"
+  io.print("Hello, " .. name .. "!")
+  return 0
+end`;
+
+const pdfSpotlightLabel = PDF_META
+  ? `Download PDF (${PDF_META.pages} pp · ${PDF_META.sizeMiB} MiB) ↓`
+  : "Download PDF ↓";
+
+const pdfHeroLabel = PDF_META ? `Download PDF (${PDF_META.pages} pp)` : "Download PDF";
+---
+
+<BaseLayout
+  title={SITE.title}
+  description={SITE.description}
+  brandName={SITE.brandName}
+  projectLabel={SITE.projectLabel}
+  logoSrc={SITE.logoSrc}
+  navLinks={SITE.navLinks}
+  githubUrl={SITE.githubUrl}
+  siteUrl={SITE.siteUrl}
+  siteLabel={SITE.siteLabel}
+  licenseUrl={SITE.licenseUrl}
+  searchPlaceholder={SITE.searchPlaceholder}
+>
+  <main class="landing-page" data-pagefind-body>
+    <section class="hero">
+      <div class="logo-wrap">
+        <img
+          src={SITE.logoSrc}
+          alt="Titan passing in front of Saturn with edge-on rings"
+          width="136"
+          height="136"
+        />
+      </div>
+
+      <a class="release-pill" href="/changelog/">
+        <span class="release-dot" aria-hidden="true"></span>
+        <span>{SITE.versionBadge}</span>
+      </a>
+
+      <h1>Titan</h1>
+
+      <p class="hero-tagline">
+        A statically typed, ahead-of-time-compiled sister language to <a href="https://www.lua.org" rel="noopener noreferrer">Lua</a>.
+      </p>
+
+      <p class="hero-lead">
+        Lua-like syntax and Lua-faithful arithmetic with static types, compiled to native executables and
+        Lua-loadable libraries on Linux, macOS, and Windows, or WebAssembly for the browser.
+        Compiled modules run inside Lua 5.5 and share values and the garbage collector directly.
+      </p>
+
+      <nav class="hero-actions" aria-label="Primary actions">
+        <a class="btn btn-primary" href="/book/tour/">A Tour of Titan</a>
+        <a class="btn" href="/book/">Read the Book</a>
+        <a class="btn" href={SITE.pdfHref}>{pdfHeroLabel}</a>
+      </nav>
+    </section>
+
+    <hr class="cassini-ring hero-divider" />
+
+    <section class="showcase-card" aria-label="Titan example">
+      <div class="showcase-bar">
+        <span>hello.titan</span>
+        <span class="showcase-bar-tag">Titan · Compile &amp; Run</span>
+      </div>
+      <div class="showcase-body">
+        <div class="showcase-code">
+          <Code
+            code={helloCode}
+            lang={titanLang}
+            themes={{ dark: cassiniDarkTheme, light: cassiniPrintTheme }}
+            defaultColor="dark"
+          />
+        </div>
+        <div class="showcase-shell">
+          <pre><code><span class="t-pr">$ </span>titanc -o out hello    <span class="t-cm"># build</span>
+<span class="t-pr">$ </span>./out/hello Titan      <span class="t-cm"># Hello, Titan!</span></code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="features-grid" aria-label="Key capabilities">
+      <article class="feature-item">
+        <h2>Static types, Lua runtime</h2>
+        <p>
+          64-bit <code>integer</code>, <code>float</code>, byte <code>string</code>, option types
+          (<code>T?</code>), dense Arrays, Maps, records, tagged unions with <code>case</code>,
+          nominal Interfaces with structural satisfaction, generics, and <code>value</code> interop.
+        </p>
+      </article>
+
+      <article class="feature-item">
+        <h2>Native &amp; WebAssembly targets</h2>
+        <p>
+          Compiles to standalone executables, shared <code>.so</code>/<code>.dll</code> and static
+          <code>.a</code> providers with embedded type metadata, plus browser WebAssembly via
+          Emscripten.
+        </p>
+      </article>
+
+      <article class="feature-item">
+        <h2>Direct C interface</h2>
+        <p>
+          <code>foreign import</code> binds C headers directly; <code>foreign function</code>
+          exports C-ABI entry points and GC-free callbacks without wrapper boilerplate.
+        </p>
+      </article>
+
+      <article class="feature-item">
+        <h2>Batteries-included standard library</h2>
+        <p>
+          26 native modules—libuv <code>async</code>, TLS, HTTP/1.1, WebSocket, OS threads, JSON,
+          Protocol Buffers, SQLite, <code>peg</code>, reflection, native tests—and 21 on the browser
+          target.
+        </p>
+      </article>
+    </section>
+
+    <InstallTabs
+      heading="Install Titan"
+      kicker={`Version ${SITE.version} · Isolated Prefix`}
+      platforms={installPlatforms}
+    />
+
+    <section class="spotlights-grid" aria-label="Documentation and tooling">
+      <article class="spotlight-card">
+        <div>
+          <div class="kicker">The Book · Version {SITE.version}</div>
+          <h3>The Titan Programming Language</h3>
+          <p>
+            Fifty-one chapters covering the tutorial, language reference, 27 standard-library
+            modules, toolchain, formal grammar, and the Effective Titan Style Guide—readable online
+            or as a typeset PDF monograph.
+          </p>
+        </div>
+        <div class="spotlight-links">
+          <a href="/book/">Browse HTML Book →</a>
+          <a href={SITE.pdfHref}>{pdfSpotlightLabel}</a>
+        </div>
+      </article>
+
+      <article class="spotlight-card">
+        <div>
+          <div class="kicker">Editor Tooling · Native Language Server</div>
+          <h3>VS Code Extension &amp; LSP</h3>
+          <p>
+            Saved-file diagnostics, go-to-definition, references, rename and hover, plus
+            unsaved-buffer completion and live hover, powered by Titan's own compiler.
+          </p>
+        </div>
+        <div class="spotlight-links">
+          <a href="/vscode/">Extension Guide →</a>
+          <a href="/vscode/architecture/">LSP Architecture →</a>
+        </div>
+      </article>
+    </section>
+  </main>
+</BaseLayout>

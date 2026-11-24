@@ -1,0 +1,98 @@
+---
+import "../styles/tokens.css";
+import "../styles/theme.css";
+import Header, { type NavLink } from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import SearchModal from "../components/SearchModal.astro";
+
+export interface Props {
+  title: string;
+  description?: string;
+  brandName?: string;
+  projectLabel?: string;
+  logoSrc?: string;
+  versionBadge?: string;
+  navLinks: NavLink[];
+  githubUrl: string;
+  siteUrl?: string;
+  siteLabel?: string;
+  licenseUrl?: string;
+  searchPlaceholder?: string;
+  hasSidebar?: boolean;
+}
+
+const {
+  title,
+  description = "A statically typed, ahead-of-time-compiled sister language to Lua.",
+  brandName = "Titan",
+  projectLabel = brandName,
+  logoSrc = "/assets/titan-logo.svg",
+  versionBadge,
+  navLinks,
+  githubUrl,
+  siteUrl = "https://titan-lang.dev/",
+  siteLabel = "titan-lang.dev",
+  licenseUrl = "https://github.com/mascarenhas/titan/blob/master/LICENSE",
+  searchPlaceholder = "Search documentation...",
+  hasSidebar = false,
+} = Astro.props;
+
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site || siteUrl).toString();
+---
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#080a07" />
+    <script is:inline>
+      (() => {
+        try {
+          const param = new URLSearchParams(location.search).get("theme");
+          let theme = null;
+          if (param === "light" || param === "dark") {
+            theme = param;
+          } else {
+            const saved = localStorage.getItem("cassini-theme");
+            if (saved === "light" || saved === "dark") theme = saved;
+          }
+          if (theme === "light") {
+            document.documentElement.dataset.theme = "light";
+            const meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute("content", "#f7f4ec");
+          } else {
+            delete document.documentElement.dataset.theme;
+          }
+        } catch {}
+      })();
+    </script>
+    <link rel="canonical" href={canonicalUrl} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
+    <link rel="icon" type="image/svg+xml" href={logoSrc} />
+  </head>
+  <body>
+    <Header
+      brandName={brandName}
+      logoSrc={logoSrc}
+      versionBadge={versionBadge}
+      navLinks={navLinks}
+      githubUrl={githubUrl}
+      currentPath={Astro.url.pathname}
+      hasSidebar={hasSidebar}
+    />
+    <slot />
+    <Footer
+      projectLabel={projectLabel}
+      licenseUrl={licenseUrl}
+      siteUrl={siteUrl}
+      siteLabel={siteLabel}
+    />
+    <SearchModal placeholder={searchPlaceholder} />
+  </body>
+</html>

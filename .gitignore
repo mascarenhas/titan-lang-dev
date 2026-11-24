@@ -1,0 +1,9 @@
+node_modules/
+.astro/
+.generated/
+dist/
+public/assets/titan-logo.svg
+public/fonts/
+public/titan-programming-language.pdf
+.DS_Store
+*.log

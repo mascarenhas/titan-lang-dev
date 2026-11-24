@@ -1,0 +1,36 @@
+---
+import { getEntry, render } from "astro:content";
+import DocsLayout from "@titan-lang/cassini/layouts/DocsLayout.astro";
+import { findPrevNext, flattenSidebar } from "@titan-lang/cassini/nav";
+import { SITE, VSCODE_SIDEBAR } from "../../site.config.mjs";
+
+const entry = await getEntry("site", "vscode");
+if (!entry) throw new Error("Missing src/content/site/vscode.md");
+const { Content, headings } = await render(entry);
+const title = (entry.data as { title?: string })?.title || "Titan for VS Code & Language Server";
+const description = (entry.data as { description?: string })?.description;
+const { prev, next } = findPrevNext(flattenSidebar(VSCODE_SIDEBAR), "/vscode/");
+---
+
+<DocsLayout
+  title={title}
+  description={description}
+  brandName={SITE.brandName}
+  projectLabel={SITE.projectLabel}
+  logoSrc={SITE.logoSrc}
+  versionBadge={SITE.versionBadge}
+  navLinks={SITE.navLinks}
+  githubUrl={SITE.vscodeGithubUrl}
+  siteUrl={SITE.siteUrl}
+  siteLabel={SITE.siteLabel}
+  licenseUrl={SITE.licenseUrl}
+  searchPlaceholder={SITE.searchPlaceholder}
+  sidebarGroups={VSCODE_SIDEBAR}
+  headings={headings}
+  prev={prev}
+  next={next}
+  sectionLabel="VS Code"
+  kicker="VS Code Extension & Language Server · Overview"
+>
+  <Content />
+</DocsLayout>
