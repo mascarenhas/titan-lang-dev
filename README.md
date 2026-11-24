@@ -67,3 +67,5 @@ Shared documentation engine modules live in the npm workspace package `packages/
 - Upstream pin manifest and fetch script (`sources.json`, `scripts/fetch-sources.mjs`)
 - Site metadata, content collections, Astro config, and routes (`src/site.config.mjs`, `src/content.config.ts`, `astro.config.mjs`, `src/pages/*`)
 - Optional PDF entrypoint (`scripts/build-pdf.mjs`) and site-specific verification checks (`scripts/verify-site.mjs`, `scripts/verify-pdf.py`)
+
+<!-- PR preview smoke verification -->
