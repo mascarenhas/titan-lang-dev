@@ -427,9 +427,15 @@ compiler.dispose();
 
 fs.mkdirSync(harnessDir, { recursive: true });
 fs.writeFileSync(path.join(harnessDir, 'index.html'), `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<title>Playground verification harness</title></head>
-<body style="margin:0;font:14px system-ui;color:#eae4d3;background:#0d0f0a">
-<div id="preview" style="width:960px;height:760px"></div>
+<title>Playground verification harness</title>
+<style>
+:root { --surface: #0d0f0a; --ink: #eae4d3; color-scheme: dark; }
+:root[data-theme="light"] { --surface: #efeadd; --ink: #2b2a24; color-scheme: light; }
+body { margin: 0; font: 14px system-ui; color: var(--ink); background: var(--surface); }
+#preview { width: 960px; height: 760px; background: var(--surface); }
+</style></head>
+<body>
+<div id="preview"></div>
 <script type="module" src="./harness.js"></script></body></html>`);
 fs.writeFileSync(path.join(harnessDir, 'harness.js'), `
 import { createEngine, decodeShare, encodeShare, exportBundle } from ${JSON.stringify(path.join(engineModule, 'index.ts'))};
@@ -731,6 +737,21 @@ for (const example of selected) {
       await page.evaluate(([key, value]) => window.harness.run(key, value), [slug, edited]);
       const rerun = await waitForRun(page, () => window.harness.state().ready || window.harness.state().errors.length > 0);
       check(rerun.console.some(line => line.includes(marker)), `${slug}: the edited bindings.js runs after Stop → Run`);
+      // The live frame follows the page's theme without restarting the run.
+      const frame = await previewFrame(page);
+      const frameBackground = () => frame.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
+      for (const [theme, expected] of [['light', 'rgb(239, 234, 221)'], [null, 'rgb(13, 15, 10)']]) {
+        await page.evaluate(value => {
+          if (value) document.documentElement.dataset.theme = value;
+          else delete document.documentElement.dataset.theme;
+        }, theme);
+        const followed = await frame.waitForFunction(value => getComputedStyle(document.documentElement).backgroundColor === value,
+          expected, { timeout: 5_000 }).then(() => true, () => false);
+        check(followed, `${slug}: the running preview follows the ${theme ?? 'dark'} theme (${await frameBackground()})`);
+      }
+      const live = await page.evaluate(() => window.harness.state());
+      check(!live.stopped && live.errors.length === 0 && await page.locator('#preview iframe').count() === 1,
+        `${slug}: a theme change keeps the same run`);
     }
     await page.evaluate(() => window.harness.stop());
     await page.waitForTimeout(600);

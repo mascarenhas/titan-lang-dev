@@ -210,6 +210,8 @@ export interface EditorController {
 
 export function createEditor(parent: HTMLElement, hooks: EditorHooks): EditorController {
   const states = new Map<string, EditorState>();
+  /** Where each parked file was scrolled; one view serves every file, so its scroller must be restored. */
+  const scrolls = new Map<string, StateEffect<unknown>>();
   let currentPath: string | null = null;
   let diagnostics: ReadonlyMap<string, readonly Diagnostic[]> = new Map();
   let flashTimer = 0;
@@ -345,7 +347,10 @@ export function createEditor(parent: HTMLElement, hooks: EditorHooks): EditorCon
     view,
     open(path, text, readOnly = false) {
       if (currentPath === path) return;
-      if (currentPath !== null) states.set(currentPath, view.state);
+      if (currentPath !== null) {
+        states.set(currentPath, view.state);
+        scrolls.set(currentPath, view.scrollSnapshot());
+      }
       let state = states.get(path);
       if (!state) {
         state = EditorState.create({ doc: text, extensions: extensions(path, readOnly) });
@@ -358,12 +363,18 @@ export function createEditor(parent: HTMLElement, hooks: EditorHooks): EditorCon
       states.delete(path);
       currentPath = path;
       view.setState(state);
+      // A file opened for the first time starts at its top, not at the previous file's offset.
+      const snapshot = scrolls.get(path);
+      if (snapshot) view.dispatch({ effects: snapshot });
+      else view.scrollDOM.scrollTop = 0;
+      scrolls.delete(path);
       const head = state.selection.main.head;
       const line = state.doc.lineAt(head);
       hooks.onCursor(path, line.number, head - line.from + 1);
     },
     forget(path) {
       states.delete(path);
+      scrolls.delete(path);
       if (currentPath === path) currentPath = null;
     },
     current: () => currentPath,

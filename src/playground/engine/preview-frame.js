@@ -50,6 +50,7 @@ addEventListener('message', function accept(event) {
   run = data.run;
   port.onmessage = message => {
     if (message.data?.type === 'start') start(message.data);
+    else if (message.data?.type === 'style') applyStyle(message.data.style);
     else if (message.data?.type === 'close') close();
   };
 });
@@ -61,10 +62,16 @@ function titanFailure(error) {
     bytes: error.bytes, trace: error.trace instanceof Uint8Array ? error.trace : new Uint8Array(0) };
 }
 
+// The parent's inherited presentation (color, background, font, color
+// scheme): applied at start and again whenever the page's theme changes.
+function applyStyle(style) {
+  for (const [name, value] of Object.entries(style)) document.documentElement.style.setProperty(name, value);
+}
+
 async function start(message) {
   if (controller) return;
   controller = new AbortController();
-  for (const [name, value] of Object.entries(message.style)) document.documentElement.style.setProperty(name, value);
+  applyStyle(message.style);
   const canvas = document.createElement('canvas');
   canvas.width = 640;
   canvas.height = 400;

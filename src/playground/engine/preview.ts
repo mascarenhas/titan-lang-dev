@@ -98,7 +98,13 @@ export function startPreview(options: PreviewOptions): { stop(): void } {
   iframe.setAttribute('sandbox', 'allow-scripts');
   iframe.title = 'Program preview';
   iframe.style.cssText = 'display:block;width:100%;height:100%;border:0;';
-  const style = inheritedStyle(options.mount);
+  // A live run keeps following the page's theme (an explicit `data-theme` or
+  // the system color scheme) without restarting.
+  const restyle = () => port?.postMessage({ type: 'style', style: inheritedStyle(options.mount) });
+  const themeObserver = new MutationObserver(restyle);
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  const colorScheme = matchMedia('(prefers-color-scheme: dark)');
+  colorScheme.addEventListener('change', restyle);
 
   // Retires the run once, whether the user stopped it or it ended on its own:
   // the frame gets a grace period to dispose its instance, then goes away.
@@ -106,6 +112,8 @@ export function startPreview(options: PreviewOptions): { stop(): void } {
     if (finished) return;
     finished = true;
     window.removeEventListener('message', onReady);
+    themeObserver.disconnect();
+    colorScheme.removeEventListener('change', restyle);
     iframe.style.display = 'none';
     const remove = () => {
       port?.close();
@@ -143,7 +151,8 @@ export function startPreview(options: PreviewOptions): { stop(): void } {
     // An opaque frame's origin can only be targeted as '*'; the port is private.
     iframe.contentWindow?.postMessage({ type: 'titan-playground:port', run }, '*', [channel.port2]);
     port.postMessage({
-      type: 'start', mode: options.mode, bindings: options.bindings, three: options.three, env: options.env, style,
+      type: 'start', mode: options.mode, bindings: options.bindings, three: options.three, env: options.env,
+      style: inheritedStyle(options.mount),
       mjs: options.image.mjs, wasm: options.image.wasm, trace: options.image.trace, stdin: options.stdin,
     });
   };

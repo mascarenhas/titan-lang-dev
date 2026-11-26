@@ -1121,7 +1121,7 @@ export function startPlayground(app: HTMLElement): void {
       loadProject(ProjectStore.fromShare(await decodeShare(location.hash)));
       return true;
     } catch (error) {
-      showToast(copy.share.failed(errorMessage(error)));
+      showToast(copy.share.loadFailed(errorMessage(error)));
       return false;
     }
   }

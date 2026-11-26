@@ -164,6 +164,7 @@ export const copy = {
     tooLarge: (kib: string) =>
       `Share link is ${kib} KiB compressed (over 16 KiB). Download the project instead.`,
     failed: (message: string) => `Could not copy share link: ${message}`,
+    loadFailed: (message: string) => `Could not open share link: ${message}`,
   },
   download: {
     building: "Building bundle…",

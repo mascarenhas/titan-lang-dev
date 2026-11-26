@@ -9,8 +9,15 @@ import {
   loadTitanLanguage,
 } from "@titan-lang/cassini/shiki";
 import { copy } from "../playground/content/copy";
-import { PDF_META, SITE } from "../site.config.mjs";
-import installPlatforms from "../content/site/install.json";
+import { PDF_META, SITE, SOURCES } from "../site.config.mjs";
+import installSteps from "../content/site/install.json";
+
+// Install steps name the release as `{{titan.ref}}`, so they follow sources.json's pinned tag.
+const fillRef = (text: string) => text.replaceAll("{{titan.ref}}", SOURCES.titan.ref);
+const installPlatforms = installSteps.map((platform) => ({
+  ...platform,
+  steps: platform.steps.map((step) => ({ ...step, label: fillRef(step.label), commands: fillRef(step.commands) })),
+}));
 
 const titanLang = loadTitanLanguage(
   path.join(process.cwd(), ".generated/sources/vscode-titan/syntaxes/titan.tmLanguage.json"),
