@@ -161,7 +161,7 @@
     --ink-primary: #d6d0be;                    /* 12.89:1 on void (30-min prose) */
     --ink-secondary: #b8b29b;                  /*  9.35:1 on void */
     --ink-muted: #97927b;                      /*  6.35:1 on void, 6.03:1 on elev */
-    --ink-faint: #7b7764;                      /* Decorative / non-prose only */
+    --ink-faint: #858170;                      /*  4.97:1 on canvas (line numbers) */
 
     /* Semantic accents */
     --accent-gold: var(--brand-accent);
@@ -288,7 +288,7 @@
   :root[data-theme="light"] {
     --brand-accent: #75580f;
     --brand-accent-bright: #18160f;
-    --brand-accent-muted: #8c6e1f;
+    --brand-accent-muted: #75580f;    /*  6.05:1 on vellum (kickers) */
     --brand-accent-secondary: #1e565e;
     --brand-accent-ink: #fcfaf4;
     --brand-glow: rgba(140, 110, 31, 0.07);
@@ -313,7 +313,7 @@
     --ink-primary: #1b1d18;           /* 15.46:1 on vellum */
     --ink-secondary: #434034;         /*  9.38:1 on vellum */
     --ink-muted: #585549;             /*  6.80:1 on vellum */
-    --ink-faint: #7d7767;
+    --ink-faint: #6a6557;             /*  4.84:1 on canvas (line numbers) */
 
     --accent-sage-dim: #36686e;
     --accent-amber: #8c600b;
@@ -437,6 +437,15 @@
 .astro-code,
 .shiki {
   background-color: var(--syntax-bg) !important;
+}
+
+/* Shiki emits the default (dark) theme's colour inline but its font style,
+   weight and decoration only as `--shiki-dark-*` custom properties. */
+.astro-code span,
+.shiki span {
+  font-style: var(--shiki-dark-font-style, inherit);
+  font-weight: var(--shiki-dark-font-weight, inherit);
+  text-decoration: var(--shiki-dark-text-decoration, inherit);
 }
 
 :root[data-theme="light"] .astro-code,

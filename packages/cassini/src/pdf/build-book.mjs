@@ -79,7 +79,7 @@ function escTypstContent(s, mathPatterns = []) {
     out = out.replace(re, (match) => {
       const idx = placeholders.length;
       placeholders.push(match);
-      return `\uE000MATH_${idx}\uE001`;
+      return `\uE000MATH${idx}\uE001`;
     });
   }
   out = out
@@ -91,8 +91,9 @@ function escTypstContent(s, mathPatterns = []) {
     .replace(/---/g, "\u2014")
     .replace(/--/g, "\u2013")
     .replace(/-\\>/g, '#box("->");');
+  // The placeholder token avoids every character escaped above.
   for (let i = 0; i < placeholders.length; i++) {
-    out = out.replaceAll(`\uE000MATH_${i}\uE001`, placeholders[i]);
+    out = out.replaceAll(`\uE000MATH${i}\uE001`, placeholders[i]);
   }
   return out;
 }
@@ -1093,8 +1094,8 @@ export async function buildBookPdf(options) {
 
 /**
  * Titan-specific preset wrapping `buildBookPdf` for "The Titan Programming Language"
- * (50 TOC chapters across Parts I–IV + Style Guide as Appendix E = 51 chapters,
- * 52 Markdown source files including `doc/language/index.md` Preface).
+ * (TOC chapters across Parts I–IV, with the Style Guide as the last appendix, plus
+ * `doc/language/index.md` as the Preface).
  */
 export async function buildTitanBookPdf(options) {
   const {
@@ -1111,7 +1112,7 @@ export async function buildTitanBookPdf(options) {
     copyrightNotice = "Copyright (c) 2017 The Titan Project Developers",
     keywords = ["Titan", "Lua", "Programming Language", "Manual"],
     edition = `Version ${version}`,
-    editionNote = `Titan ${version} (50 Chapters + Effective Titan Style Guide).`,
+    editionNote,
     sourceNote = "Generated from doc/language/ and doc/style-guide.md.",
     prefaceTitle = "About Titan",
     prefaceKicker = "Preface",
@@ -1119,7 +1120,7 @@ export async function buildTitanBookPdf(options) {
       "Part I":
         "From your first compiled executable to nominal records, closed tagged unions with non-fallthrough coverage analysis, nominal Interfaces, generics, option types, and deterministic cleanup.",
       "Part II":
-        "Module boundaries, cooperative async tasks and OS threads, seamless Lua 5.5 interoperability, direct C FFI, and the Emscripten WebAssembly browser target.",
+        "Module boundaries, cooperative async tasks and OS threads, seamless Lua 5.5 interoperability, direct C FFI, and the WebAssembly browser target.",
       "Part III":
         "Complete reference for Titan's twenty-seven standard library modules across strings, parsing, I/O, networking, serialization, databases, reflection, and native tests.",
       "Part IV":
@@ -1135,6 +1136,8 @@ export async function buildTitanBookPdf(options) {
     styleGuidePath,
     baseUrl: bookUrlPrefix,
   });
+  const chapterCount =
+    toc.parts.reduce((count, part) => count + part.entries.length, 0) - (toc.styleGuideEntry ? 1 : 0);
 
   return buildBookPdf({
     ...rest,
@@ -1151,7 +1154,7 @@ export async function buildTitanBookPdf(options) {
     copyrightNotice,
     keywords,
     edition,
-    editionNote,
+    editionNote: editionNote || `Titan ${version} (${chapterCount} Chapters + Effective Titan Style Guide).`,
     sourceNote,
     prefaceTitle,
     prefaceKicker,

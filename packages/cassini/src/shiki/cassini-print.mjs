@@ -17,7 +17,7 @@ export const cassiniPrintTheme = {
   colors: {
     "editor.background": "#f7f5ee",
     "editor.foreground": "#1b1d18",
-    "editorLineNumber.foreground": "#7d7767",
+    "editorLineNumber.foreground": "#6a6557",
     "editor.selectionBackground": "#9a7d3426",
   },
   tokenColors: [

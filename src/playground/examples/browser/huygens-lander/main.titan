@@ -1,0 +1,176 @@
+-- Huygens Landing on Titan — 2D pixel-art canvas showcase.
+-- Titan drives the descent physics, state machine, and scoring loop;
+-- editable `bindings.js` owns the 320x200 pixel-art renderer and inputs.
+
+local async = import "async"
+local browser = import "browser"
+local math = import "math"
+local string = import "string"
+local physics = import "physics"
+
+local type Value = browser.BrowserValue
+local const WIND_PRESETS: const { float } = { 7.5, 5.0, -4.5, 9.5, 3.0 }
+
+local record Screen
+  clear: browser.BrowserHandle
+  fill_circle: browser.BrowserHandle
+  set_text: browser.BrowserHandle
+  control: browser.BrowserHandle
+  on_frame: browser.BrowserHandle
+  set_terrain: browser.BrowserHandle
+  draw_world: browser.BrowserHandle
+  draw_probe: browser.BrowserHandle
+  spawn_fx: browser.BrowserHandle
+end
+
+local function Screen.open(): Screen
+  return Screen {
+    clear = browser.binding("clear"),
+    fill_circle = browser.binding("fill_circle"),
+    set_text = browser.binding("set_text"),
+    control = browser.binding("control"),
+    on_frame = browser.binding("on_frame"),
+    set_terrain = browser.binding("set_terrain"),
+    draw_world = browser.binding("draw_world"),
+    draw_probe = browser.binding("draw_probe"),
+    spawn_fx = browser.binding("spawn_fx"),
+  }
+end
+
+local function Screen:close()
+  self.clear:close()
+  self.fill_circle:close()
+  self.set_text:close()
+  self.control:close()
+  self.on_frame:close()
+  self.set_terrain:close()
+  self.draw_world:close()
+  self.draw_probe:close()
+  self.spawn_fx:close()
+end
+
+local function Screen:is_down(name: string): boolean
+  case self.control:call(Value.is_string(name))
+  when is_boolean(pressed) then return pressed
+  end
+  return false
+end
+
+local function open_frames(source: browser.BrowserHandle):
+    async.CoalescingSubscription<|float, string|>
+  local req: browser.BrowserRequest? = nil
+  return async.CoalescingSubscription<|float, string|>(
+    function (publish, fail, _finish): async.SubscriptionActions<|float|>
+      local actions = async.SubscriptionActions<|float|>(
+        function () local open? = req; if open then open:cancel() end end,
+        function (_drain) local open? = req; if open then req = nil; open:close() end end
+      )
+      req = source:listen(function (...: Value): Value
+        case ...[1] when is_float(dt) then publish(dt) end
+        return Value.is_nil()
+      end, function (...: Value): Value
+        fail(browser.failure_text(...[1], ...[2]) or "animation frame failed")
+        return Value.is_nil()
+      end)
+      return actions
+    end
+  )
+end
+
+local function phase_info(phase: physics.Phase): (integer, float, string, string)
+  case phase
+  when chute(canopy) then
+    return 0, canopy, "CHUTE", "CHUTE OPEN · THRUST TO JETTISON"
+  when retro() then
+    return 1, 0.0, "RETRO", "RETRO MANUAL · LAND ON ADIRI / XANADU / SHANGRI-LA"
+  when landed(pad, score) then
+    return 2, 0.0, "LANDED", string.format("TOUCHDOWN ON %s · +%d PTS · PRESS R", pad, score)
+  when crashed(reason, _) then
+    return 3, 0.0, "CRASHED", string.format("SIGNAL LOST: %s · PRESS R", reason)
+  end
+end
+
+local function Screen:draw(probe: physics.Probe, best: integer, drop: integer)
+  local phase_code, canopy, tag, banner = phase_info(probe.phase)
+  local alt = probe:altitude()
+  local wind = probe:wind_at()
+
+  self.clear:call(Value.is_string("#0b0e12"))
+  self.draw_world:call(Value.is_float(wind), Value.is_float(probe.elapsed))
+  self.draw_probe:call(
+    Value.is_float(probe.x), Value.is_float(probe.y),
+    Value.is_float(probe.vx), Value.is_float(probe.vy),
+    Value.is_float(probe.angle), Value.is_float(probe.fuel),
+    Value.is_float(wind), Value.is_float(alt),
+    Value.is_integer(phase_code), Value.is_float(canopy),
+    Value.is_boolean(probe.thrusting), Value.is_integer(probe.rcs),
+    Value.is_integer(best), Value.is_integer(drop), Value.is_string(banner)
+  )
+
+  -- Paint the descent-rate safety LED atop the HUD bar with `fill_circle`.
+  local led = "#a9d1be"
+  if probe.vy > physics.SAFE_VY then led = "#ee8270"
+  elseif probe.vy > physics.SAFE_VY * 0.75 then led = "#dfb468" end
+  self.fill_circle:call(Value.is_float(8.0), Value.is_float(9.0),
+    Value.is_float(2.0), Value.is_string(led))
+
+  self.set_text:call(Value.is_string(string.format(
+    "%s | ALT %.0fm | VY %.1f | FUEL %.0f%% | BEST %d",
+    tag, alt * 4.0, probe.vy * 0.3, probe.fuel, best
+  )))
+end
+
+function main(_args: {string}): integer
+  local screen = Screen.open()
+  defer screen:close()
+
+  local heights, pads, lakes = physics.serialize_world()
+  screen.set_terrain:call(Value.is_string(heights), Value.is_string(pads), Value.is_string(lakes))
+
+  local frames = open_frames(screen.on_frame)
+  defer frames:close()
+
+  local drop = 1
+  local best = 0
+  local probe = physics.Probe.launch(WIND_PRESETS[1])
+  local reset_held = false
+  local settle_wait = 0.0
+  screen:draw(probe, best, drop)
+
+  while true do
+    case frames:next()
+    when item(raw_dt) then
+      local dt = math.min(math.max(raw_dt, 0.0), 0.05)
+      local ctrl = physics.Controls {
+        left = screen:is_down("left"), right = screen:is_down("right"),
+        thrust = screen:is_down("thrust"), reset = screen:is_down("restart"),
+      }
+      local phase_code, _, _, _ = phase_info(probe.phase)
+      local finished = phase_code >= 2
+      settle_wait = finished and (settle_wait + dt) or 0.0
+
+      local want_reset = (ctrl.reset and not reset_held)
+        or (finished and settle_wait > 0.7 and ctrl.thrust)
+      reset_held = ctrl.reset
+
+      if want_reset then
+        drop = drop + 1
+        probe = physics.Probe.launch(WIND_PRESETS[((drop - 1) % #WIND_PRESETS) + 1])
+        settle_wait = 0.0
+        screen.spawn_fx:call(Value.is_string("reset"), Value.is_float(probe.x),
+          Value.is_float(probe.y), Value.is_float(0.0), Value.is_float(0.0))
+      elseif dt > 0.0 then
+        local event? = probe:step(dt, ctrl)
+        if event then
+          case probe.phase when landed(_, score) then if score > best then best = score end end
+          screen.spawn_fx:call(Value.is_string(event), Value.is_float(probe.x),
+            Value.is_float(probe.y), Value.is_float(probe.vx), Value.is_float(probe.vy))
+        end
+      end
+      screen:draw(probe, best, drop)
+    when error(message) then raise message
+    else break
+    end
+  end
+  return 0
+end

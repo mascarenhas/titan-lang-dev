@@ -1,0 +1,105 @@
+local io = import "io"
+local strings = import "string"
+
+--- An immutable two-element tuple with type parameters `T` and `U`.
+record Pair<|T, U|>
+  const first: T
+  const second: U
+end
+
+--- Transform the second element while preserving the first.
+function Pair:map_second<|V|>(transform: function (U): (V)): Pair<|T, V|>
+  return Pair(self.first, transform(self.second))
+end
+
+--- Behavioral contract satisfied structurally by any matching record or union.
+interface Measurable
+  function label(): string
+  function measure(): float
+end
+
+record Moon
+  const name: string
+  const radius_km: float
+end
+
+function Moon:label(): string
+  return self.name
+end
+
+function Moon:measure(): float
+  return self.radius_km
+end
+
+record Ring
+  const name: string
+  const width_km: float
+end
+
+function Ring:label(): string
+  return self.name .. " ring"
+end
+
+function Ring:measure(): float
+  return self.width_km
+end
+
+--- Left-fold an array into a single accumulated value.
+function foldl<|T, U|>(
+  items: const? {T},
+  initial: U,
+  combine: function (U, T): (U)
+): U
+  local acc = initial
+  for i = 1, #items do
+    acc = combine(acc, items[i])
+  end
+  return acc
+end
+
+--- Return the larger of two values satisfying `Measurable`, preserving concrete `T`.
+function larger<|T: Measurable|>(a: T, b: T): T
+  if b:measure() > a:measure() then
+    return b
+  end
+  return a
+end
+
+function main(_args: {string}): integer
+  local moons: {Moon} = {
+    Moon("Enceladus", 252.1),
+    Moon("Titan", 2574.7),
+    Moon("Rhea", 763.8),
+  }
+  local rings: {Ring} = {
+    Ring("A", 14600.0),
+    Ring("B", 25500.0),
+    Ring("C", 17500.0),
+  }
+
+  -- Type arguments are inferred; Moon and Ring satisfy Measurable structurally.
+  local first_moon = moons[1]
+  local biggest_moon = foldl(moons, first_moon, function (best, moon)
+    return larger(best, moon)
+  end)
+  local first_ring = rings[1]
+  local widest_ring = foldl(rings, first_ring, function (best, ring)
+    return larger(best, ring)
+  end)
+
+  io.print(strings.format("Largest moon: %s (%.1f km radius)",
+    biggest_moon.name, biggest_moon.radius_km))
+  io.print(strings.format("Widest ring:  %s (%.0f km wide)",
+    widest_ring:label(), widest_ring.width_km))
+
+  local total_radius = foldl(moons, 0.0, function (sum, moon)
+    return sum + moon.radius_km
+  end)
+  io.print(strings.format("Combined moon radius: %.1f km", total_radius))
+
+  local radius_pair = Pair("Titan", 2574.7)
+  local diameter_pair = radius_pair:map_second(function (r) return r * 2.0 end)
+  io.print(strings.format("%s diameter: %.1f km",
+    diameter_pair.first, diameter_pair.second))
+  return 0
+end

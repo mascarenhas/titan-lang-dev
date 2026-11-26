@@ -8,6 +8,7 @@ import {
   cassiniPrintTheme,
   loadTitanLanguage,
 } from "@titan-lang/cassini/shiki";
+import { copy } from "../playground/content/copy";
 import { PDF_META, SITE } from "../site.config.mjs";
 import installPlatforms from "../content/site/install.json";
 
@@ -115,8 +116,8 @@ const pdfHeroLabel = PDF_META ? `Download PDF (${PDF_META.pages} pp)` : "Downloa
         <h2>Native &amp; WebAssembly targets</h2>
         <p>
           Compiles to standalone executables, shared <code>.so</code>/<code>.dll</code> and static
-          <code>.a</code> providers with embedded type metadata, plus browser WebAssembly via
-          Emscripten.
+          <code>.a</code> providers with embedded type metadata, plus browser WebAssembly built with
+          wasi-sdk and Binaryen.
         </p>
       </article>
 
@@ -145,6 +146,17 @@ const pdfHeroLabel = PDF_META ? `Download PDF (${PDF_META.pages} pp)` : "Downloa
     />
 
     <section class="spotlights-grid" aria-label="Documentation and tooling">
+      <article class="spotlight-card spotlight-card--wide">
+        <div>
+          <div class="kicker">{copy.landing.kicker}</div>
+          <h3>{copy.landing.title}</h3>
+          <p>{copy.landing.body}</p>
+        </div>
+        <div class="spotlight-links">
+          <a href="/play/">{copy.landing.cta} →</a>
+        </div>
+      </article>
+
       <article class="spotlight-card">
         <div>
           <div class="kicker">The Book · Version {SITE.version}</div>

@@ -7,6 +7,15 @@ description: "Release notes and milestones for the Titan programming language."
 
 Release highlights for the [Titan programming language](https://github.com/mascarenhas/titan/releases). See the [Installation Guide](/book/installation/) for prefix layout and upgrade rules.
 
+## v0.6.2
+
+*Tag: [`v0.6.2`](https://github.com/mascarenhas/titan/releases/tag/v0.6.2) · Commit `c9f8322`*
+
+- **Browser target migrated to `wasi-sdk` 34 and Binaryen 133 (`titan#448`):** Replaced Emscripten with `wasi-sdk` 34 (`wasm32-wasi` with standard WebAssembly `exnref` exception handling) and Binaryen 133 (`wasm-opt --stack-check`), shipping a zero-dependency WebAssembly factory (`titan-wasm-factory.mjs`), pure-Lua DWARF `.debug_line` trace tables and source maps (`.wasm.trace` and `.wasm.map`), `production` and `validation` browser profiles, and `titan-browser-run` for Node 26+ and JSPI Chromium.
+- **Reproducible browser compiler bundle (`titan#449`):** Added `make playground-sdk` producing a byte-reproducible `titanc.wasm` + `titanc.mjs` adapter (`check`, `hover`, `complete`, `emit_c`, `build_trace`), lean browser `titan.a` (omitting `*_titan_source` while retaining `.debug_line`), `stdlib_catalog.bin`, `link-plan.json`, and blob-safe browser module embedding.
+- **Client-side Browser Playground (`/play/`):** Launched the zero-server [Titan Browser Playground](/play/) with instant `titanc.wasm` type checking, hovers, completion, and generated C99 inspection paired with in-tab `@yowasp/clang`, `wasi-sdk` 34 C99 headers, and single-threaded Binaryen 133 `wasm-opt` compilation, clickable source-mapped stack traces, local `#v1=` URL sharing, deployable `.zip` export, and 10 curated examples featuring inspectable, editable `bindings.js` showcases (*Mini-React*, *Huygens Landing on Titan*, and *3D Gravity Assist Simulator*).
+- **`@titan-lang/cassini` site and PDF fixes (`titan-lang-dev#2`):** Fixed dark-theme Shiki font weight/style/decoration overrides, switched the Typst PDF math placeholder to an unescaped private-use sentinel, raised Paper `--brand-accent-muted` and Dark/Paper `--ink-faint` contrast to WCAG AA, added accessible compact mobile navigation, and computed the PDF edition chapter count dynamically from the Book TOC.
+
 ## v0.6.1
 
 *Tag: [`v0.6.1`](https://github.com/mascarenhas/titan/releases/tag/v0.6.1) · Commit `704d481`*

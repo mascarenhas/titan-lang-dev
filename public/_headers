@@ -25,6 +25,17 @@
   ! Cache-Control
   Cache-Control: public, max-age=3600, must-revalidate
 
+# Playground asset pointer: names the current immutable CDN version, so always revalidate
+/play/playground-assets.json
+  ! Cache-Control
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Data fixtures that playground programs fetch, also from the opaque preview frame (Origin: null)
+/play/data/*
+  ! Cache-Control
+  Cache-Control: public, max-age=3600, must-revalidate
+  Access-Control-Allow-Origin: *
+
 # Keep PR preview / Version URLs on workers.dev out of search indexes
 https://:worker.:subdomain.workers.dev/*
   X-Robots-Tag: noindex, nofollow

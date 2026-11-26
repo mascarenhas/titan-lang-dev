@@ -43,6 +43,7 @@ export const SITE = {
   navLinks: [
     { label: "Book", href: "/book/", matchPrefix: "/book/" },
     { label: "VS Code", href: "/vscode/", matchPrefix: "/vscode/" },
+    { label: "Playground", href: "/play/", matchPrefix: "/play/" },
     { label: "Changelog", href: "/changelog/", matchPrefix: "/changelog/" },
   ],
 };

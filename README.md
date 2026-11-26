@@ -1,6 +1,6 @@
 # titan-lang.dev
 
-Website, online book, VS Code / LSP documentation, and downloadable Typst PDF for the [Titan programming language](https://github.com/mascarenhas/titan), deployed to Cloudflare Workers Static Assets (`titan-lang`).
+Website, online book, client-side [Browser Playground](https://titan-lang.dev/play/), VS Code / LSP documentation, and downloadable Typst PDF for the [Titan programming language](https://github.com/mascarenhas/titan), deployed to Cloudflare Workers Static Assets (`titan-lang`).
 
 ## Prerequisites
 
@@ -18,9 +18,40 @@ npm run verify    # verify all HTML links/fragments/assets/limits + PDF bookmark
 ```
 
 Output is written to `dist/`, including:
-- HTML routes (`/`, `/book/`, `/vscode/`, `/changelog/`, `/404.html`)
+- HTML routes (`/`, `/play/`, `/book/`, `/vscode/`, `/changelog/`, `/404.html`)
 - Search index (`dist/pagefind/`)
 - Downloadable book PDF (`dist/titan-programming-language.pdf`) — 50 TOC chapters + Style Guide (51 chapters total; 52 source files including Preface)
+
+## Browser Playground (`/play/`)
+
+The `/play/` route runs the entire Titan browser toolchain client-side with zero compilation servers:
+
+- **Tier 1 (instant):** `titanc.wasm`, `titanc.mjs`, and `stdlib_catalog.bin` power live diagnostics, hover types, completion, and generated C99 inspection.
+- **Tier 2 (cached once):** `@yowasp/clang`, trimmed `wasi-sdk` 34 C99 headers/sysroot, single-threaded Binaryen 133 `wasm-opt`, and lean browser `titan.a` compile, link, optimize, and execute programs inside disposable Workers and sandboxed `srcdoc` preview iframes (`bindings.js`).
+
+Immutable, content-hashed playground bundles are served from `https://cdn.titan-lang.dev/playground/` (Cloudflare R2). For local development against a locally built `make playground-sdk` bundle and browser `wasm-opt` build (`scripts/build-wasm-opt.sh`):
+
+```sh
+# 1. Stage content-hashed assets and write the local manifest pointer
+node scripts/build-playground-assets.mjs \
+  --titan-bundle /path/to/titan-bundle \
+  --titan-revision <40-char-titan-sha> \
+  --wasm-opt /path/to/wasm-opt-dir \
+  --wasi-sdk "$WASI_SDK_PATH" \
+  --out .generated/playground \
+  --site-manifest public/play/playground-assets.json
+
+# 2. Serve staged assets locally with CDN CORS headers and run Astro against them
+node scripts/build-playground-assets.mjs serve --dir .generated/playground
+PUBLIC_PLAYGROUND_CDN_BASE=http://127.0.0.1:4174/playground/ npm run dev
+```
+
+To compile, link, and test all 10 curated examples end-to-end (requires Node 26+ with WebAssembly JSPI and a JSPI-capable Chrome/Chromium):
+
+```sh
+node scripts/verify-examples.mjs --assets .generated/playground [--chrome /path/to/chrome] [--only saturns-moons]
+node scripts/upload-r2.check.mjs   # offline verification of the create-only R2 publisher
+```
 
 ## Previewing Local Upstream Checkouts
 

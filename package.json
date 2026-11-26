@@ -20,11 +20,24 @@
   },
   "dependencies": {
     "@astrojs/markdown-remark": "^7.3.10",
+    "@codemirror/autocomplete": "^6.20.4",
+    "@codemirror/commands": "^6.11.2",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/lint": "^6.9.8",
+    "@codemirror/search": "^6.7.3",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.44.1",
+    "@lezer/highlight": "^1.2.5",
     "@titan-lang/cassini": "*",
-    "astro": "^7.4.13"
+    "@yowasp/clang": "22.0.0-git20695-13",
+    "astro": "^7.4.13",
+    "fflate": "^0.8.3",
+    "three": "0.187.0"
   },
   "devDependencies": {
     "pagefind": "^1.6.0",
+    "playwright-core": "1.65.1",
     "wrangler": "^4.0.0"
   }
 }

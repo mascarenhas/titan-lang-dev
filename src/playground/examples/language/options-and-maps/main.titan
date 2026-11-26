@@ -1,0 +1,102 @@
+local io = import "io"
+local math = import "math"
+local strings = import "string"
+
+--- One telemetry sample; temperature is optional when a sensor drops a frame.
+record Reading
+  const sensor: string
+  const temp_k: float?
+end
+
+--- Per-sensor aggregate collected from a stream of telemetry packets.
+record Summary
+  const order: {string}
+  const counts: {string: integer}
+  const temp_sums: {string: float}
+  const temp_hits: {string: integer}
+end
+
+local function parse_packet(line: string): Reading?
+  local sep? = strings.find(line, " ")
+  if sep == nil then return nil end
+
+  local sensor = strings.sub(line, 1, sep - 1)
+  local raw = strings.sub(line, sep + 1)
+  local parsed? = math.tonumber(raw)
+  local temp_k: float? = nil
+  if parsed ~= nil then
+    temp_k = parsed as float
+  end
+  return Reading(sensor, temp_k)
+end
+
+local function summarize(packets: const? {string}): Summary
+  local order: {string} = {}
+  local counts: {string: integer} = {}
+  local temp_sums: {string: float} = {}
+  local temp_hits: {string: integer} = {}
+
+  for i = 1, #packets do
+    local reading? = parse_packet(packets[i])
+    if reading ~= nil then
+      local name = reading.sensor
+      -- Appending `?` keeps the Map lookup as `integer?` instead of unwrapping.
+      local seen? = counts[name]
+      if seen == nil then
+        order[#order + 1] = name
+      end
+      counts[name] = (seen or 0) + 1
+
+      local temp? = reading.temp_k
+      if temp ~= nil then
+        local total? = temp_sums[name]
+        local hits? = temp_hits[name]
+        temp_sums[name] = (total or 0.0) + temp
+        temp_hits[name] = (hits or 0) + 1
+      end
+    end
+  end
+
+  return Summary(order, counts, temp_sums, temp_hits)
+end
+
+local function Summary:mean_temp(sensor: string): float?
+  local total? = self.temp_sums[sensor]
+  local hits? = self.temp_hits[sensor]
+  if total == nil or hits == nil or hits == 0 then
+    return nil
+  end
+  return total / hits
+end
+
+function main(_args: {string}): integer
+  local packets: {string} = {
+    "radar 93.7",
+    "altimeter 94.2",
+    "spectrometer -",
+    "radar 92.9",
+    "altimeter -",
+    "magnetometer 91.5",
+    "radar 93.4",
+    "malformed-packet",
+  }
+
+  local report = summarize(packets)
+  io.print("Sensor         Packets  Mean Temp")
+  io.print("---------------------------------")
+  for i = 1, #report.order do
+    local name = report.order[i]
+    local count = report.counts[name]
+    local avg? = report:mean_temp(name)
+    local display = "n/a"
+    if avg ~= nil then
+      display = strings.format("%.2f K", avg)
+    end
+    io.print(strings.format("%-14s %7d  %s", name, count, display))
+  end
+
+  local missing? = report.counts["camera"]
+  io.print("")
+  io.print("camera packets: " .. (missing or 0) .. " (absent key safely handled)")
+  return 0
+end

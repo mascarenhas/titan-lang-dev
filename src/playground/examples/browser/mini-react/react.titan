@@ -1,0 +1,668 @@
+--- Mini-React in Titan: virtual DOM diffing, hooks, and named-argument elements.
+local async = import "async"
+local browser = import "browser"
+local iteration = import "iteration"
+
+local type Value = browser.BrowserValue
+
+--- Callback receiving an event payload string (input text, key name, or "").
+type EventHandler = function (string): ()
+
+--- Cleanup returned by a `useEffect` callback.
+type Cleanup = function (): ()
+
+--- Effect callback executed after DOM reconciliation commits.
+type EffectFn = function (): (Cleanup?)
+
+--- Single DOM attribute or property entry on a virtual element.
+record Prop
+  const name: string
+  const value: string
+end
+
+--- Event binding attached to a virtual element.
+record Listener
+  const event: string
+  const handler: EventHandler
+end
+
+--- Virtual DOM tree node: either a text leaf or a tagged HTML element.
+union VNode
+  text(content: string)
+  element(
+    tag: string,
+    props: {Prop},
+    listeners: {Listener},
+    children: {VNode}
+  )
+end
+
+-- Host DOM binding handles acquired once per `render` session.
+local record Dom
+  const root: browser.BrowserHandle
+  const element: browser.BrowserHandle
+  const text: browser.BrowserHandle
+  const set_text: browser.BrowserHandle
+  const attr: browser.BrowserHandle
+  const remove_attr: browser.BrowserHandle
+  const insert: browser.BrowserHandle
+  const remove: browser.BrowserHandle
+  const event: browser.BrowserHandle
+  const set_status: browser.BrowserHandle
+end
+
+local function Dom.open(): Dom
+  return Dom(
+    browser.binding("dom_root"),
+    browser.binding("dom_element"),
+    browser.binding("dom_text"),
+    browser.binding("dom_set_text"),
+    browser.binding("dom_attr"),
+    browser.binding("dom_remove_attr"),
+    browser.binding("dom_insert"),
+    browser.binding("dom_remove"),
+    browser.binding("dom_event"),
+    browser.binding("dom_set_status")
+  )
+end
+
+local function Dom:close()
+  self.root:close()
+  self.element:close()
+  self.text:close()
+  self.set_text:close()
+  self.attr:close()
+  self.remove_attr:close()
+  self.insert:close()
+  self.remove:close()
+  self.event:close()
+  self.set_status:close()
+end
+
+local function expect_handle(v: Value): browser.BrowserHandle
+  case v
+  when is_handle(handle) then return handle
+  end
+  raise "expected a DOM BrowserHandle from bindings.js"
+end
+
+local function string_or_empty(v: Value): string
+  case v
+  when is_string(text) then return text
+  when is_handle(handle) then handle:close()
+  end
+  return ""
+end
+
+-- Mounted DOM tree mirrored alongside the active `VNode` tree.
+local record ActiveListener
+  const request: browser.BrowserRequest
+  handler: EventHandler
+  alive: boolean
+end
+
+local record Mounted
+  dom: browser.BrowserHandle
+  vnode: VNode
+  listeners: {string: ActiveListener}
+  children: {Mounted}
+end
+
+local record QueuedEvent
+  const listener: ActiveListener
+  const payload: string
+end
+
+local record EffectSlot
+  deps: {value}?
+  has_run: boolean
+  cleanup: Cleanup?
+end
+
+local record PendingEffect
+  const slot: EffectSlot
+  const run: EffectFn
+end
+
+-- Session-scoped hook, event, and reconciliation state.
+local active_dom: Dom? = nil
+local hook_cursor = 1
+local hook_values: {value} = {}
+local hook_ready: {boolean} = {}
+local effect_slots: {EffectSlot} = {}
+local pending_effects: {PendingEffect} = {}
+local event_queue: {QueuedEvent} = {}
+local dirty = false
+local render_count = 0
+local last_patch_ops = 0
+local waiter: async.Task<|value, value|>? = nil
+local wait_token: async.ResumeToken? = nil
+
+local function wake()
+  local task? = waiter
+  local token? = wait_token
+  if task ~= nil and token ~= nil then
+    waiter = nil
+    wait_token = nil
+    task:resume(token)
+  end
+end
+
+local function schedule_render()
+  dirty = true
+  wake()
+end
+
+local function reset_session()
+  active_dom = nil
+  hook_cursor = 1
+  hook_values = {}
+  hook_ready = {}
+  effect_slots = {}
+  pending_effects = {}
+  event_queue = {}
+  dirty = false
+  render_count = 0
+  last_patch_ops = 0
+  waiter = nil
+  wait_token = nil
+end
+
+--- Create a virtual text node.
+function text(content: string): VNode
+  return VNode.text(content)
+end
+
+--- Generic HTML element constructor using Titan named arguments in lieu of JSX.
+function el(
+  tag: string,
+  class: string?,
+  text: string?,
+  value: string?,
+  placeholder: string?,
+  input_type: string?,
+  checked: boolean?,
+  disabled: boolean?,
+  title: string?,
+  aria_label: string?,
+  on_click: EventHandler?,
+  on_input: EventHandler?,
+  on_keydown: EventHandler?,
+  on_change: EventHandler?,
+  children: {VNode}?
+): VNode
+  local props: {Prop} = {}
+  if class ~= nil then props[#props + 1] = Prop("class", class) end
+  if input_type ~= nil then props[#props + 1] = Prop("type", input_type) end
+  if value ~= nil then props[#props + 1] = Prop("value", value) end
+  if placeholder ~= nil then props[#props + 1] = Prop("placeholder", placeholder) end
+  if checked ~= nil then
+    props[#props + 1] = Prop("checked", checked and "true" or "false")
+  end
+  if disabled ~= nil then
+    props[#props + 1] = Prop("disabled", disabled and "true" or "false")
+  end
+  if title ~= nil then props[#props + 1] = Prop("title", title) end
+  if aria_label ~= nil then props[#props + 1] = Prop("aria-label", aria_label) end
+
+  local listeners: {Listener} = {}
+  if on_click ~= nil then listeners[#listeners + 1] = Listener("click", on_click) end
+  if on_input ~= nil then listeners[#listeners + 1] = Listener("input", on_input) end
+  if on_keydown ~= nil then listeners[#listeners + 1] = Listener("keydown", on_keydown) end
+  if on_change ~= nil then listeners[#listeners + 1] = Listener("change", on_change) end
+
+  local kids: {VNode} = {}
+  if text ~= nil then kids[#kids + 1] = VNode.text(text) end
+  if children ~= nil then
+    for i = 1, #children do kids[#kids + 1] = children[i] end
+  end
+  return VNode.element(tag, props, listeners, kids)
+end
+
+function div(class: string?, text: string?, children: {VNode}?): VNode
+  return el { tag = "div", class = class, text = text, children = children }
+end
+
+function header(class: string?, children: {VNode}?): VNode
+  return el { tag = "header", class = class, children = children }
+end
+
+function section(class: string?, children: {VNode}?): VNode
+  return el { tag = "section", class = class, children = children }
+end
+
+function h1(class: string?, text: string?): VNode
+  return el { tag = "h1", class = class, text = text }
+end
+
+function p(class: string?, text: string?, children: {VNode}?): VNode
+  return el { tag = "p", class = class, text = text, children = children }
+end
+
+function span(class: string?, text: string?): VNode
+  return el { tag = "span", class = class, text = text }
+end
+
+function ul(class: string?, children: {VNode}?): VNode
+  return el { tag = "ul", class = class, children = children }
+end
+
+function li(class: string?, children: {VNode}?): VNode
+  return el { tag = "li", class = class, children = children }
+end
+
+function label(class: string?, text: string?, children: {VNode}?): VNode
+  return el { tag = "label", class = class, text = text, children = children }
+end
+
+function button(
+  class: string?, text: string?, disabled: boolean?,
+  aria_label: string?, on_click: EventHandler?, children: {VNode}?
+): VNode
+  return el {
+    tag = "button", class = class, text = text, disabled = disabled,
+    aria_label = aria_label, on_click = on_click, children = children,
+  }
+end
+
+function input(
+  class: string?, input_type: string?, value: string?, placeholder: string?,
+  checked: boolean?, aria_label: string?,
+  on_input: EventHandler?, on_keydown: EventHandler?, on_change: EventHandler?
+): VNode
+  return el {
+    tag = "input", class = class, input_type = input_type, value = value,
+    placeholder = placeholder, checked = checked, aria_label = aria_label,
+    on_input = on_input, on_keydown = on_keydown, on_change = on_change,
+  }
+end
+
+--- Declare component state; returns `(current, set_value, update_value)`.
+function useState<|T|>(
+  initial: T
+): (T, function (T): (), function (function (T): (T)): ())
+  local index = hook_cursor
+  hook_cursor = hook_cursor + 1
+
+  local initialized? = hook_ready[index]
+  if initialized == nil then
+    hook_values[index] = initial
+    hook_ready[index] = true
+  end
+
+  local current: T = hook_values[index]
+  local set_value = function (next_value: T)
+    local cur: value = hook_values[index]
+    local nxt: value = next_value
+    if cur ~= nxt then
+      hook_values[index] = nxt
+      schedule_render()
+    end
+  end
+  local update_value = function (transform: function (T): (T))
+    local prev: T = hook_values[index]
+    local next_value = transform(prev)
+    local cur: value = hook_values[index]
+    local nxt: value = next_value
+    if cur ~= nxt then
+      hook_values[index] = nxt
+      schedule_render()
+    end
+  end
+  return current, set_value, update_value
+end
+
+local function deps_changed(prev: {value}?, next_deps: {value}?): boolean
+  if next_deps == nil or prev == nil then return true end
+  if #prev ~= #next_deps then return true end
+  for i = 1, #next_deps do
+    local a? = prev[i]
+    local b? = next_deps[i]
+    if a ~= b then return true end
+  end
+  return false
+end
+
+--- Register a post-commit side effect with optional dependency list and cleanup.
+function useEffect(effect: EffectFn, deps: {value}?)
+  local index = hook_cursor
+  hook_cursor = hook_cursor + 1
+
+  local slot? = effect_slots[index]
+  if slot == nil then
+    slot = EffectSlot(nil, false, nil)
+    effect_slots[index] = slot
+  end
+
+  if (not slot.has_run) or deps_changed(slot.deps, deps) then
+    slot.deps = deps
+    slot.has_run = true
+    pending_effects[#pending_effects + 1] = PendingEffect(slot, effect)
+  end
+end
+
+--- Update the preview footer status line (typically called from `useEffect`).
+function set_status(message: string)
+  local dom? = active_dom
+  if dom ~= nil then
+    dom.set_status:call(Value.is_string(message))
+  end
+end
+
+--- Return `(render_count, last_patch_ops)` for the most recent commit.
+function stats(): (integer, integer)
+  return render_count, last_patch_ops
+end
+
+-- Virtual DOM mounting, diffing, patching, and handle teardown.
+local function prop_map(props: {Prop}): {string: string}
+  local map: {string: string} = {}
+  for i = 1, #props do
+    map[props[i].name] = props[i].value
+  end
+  return map
+end
+
+local function attach_listener(
+  dom: Dom,
+  node: browser.BrowserHandle,
+  event_name: string,
+  handler: EventHandler
+): ActiveListener
+  local entry: ActiveListener? = nil
+  local request = dom.event:listen(function (...: Value): Value
+    local current? = entry
+    if current ~= nil and current.alive then
+      event_queue[#event_queue + 1] = QueuedEvent(current, string_or_empty(...[1]))
+      wake()
+    end
+    return Value.is_nil()
+  end, function (...: Value): Value
+    browser.failure_text(...[1], ...[2])
+    return Value.is_nil()
+  end, Value.is_handle(node), Value.is_string(event_name))
+
+  local active = ActiveListener(request, handler, true)
+  entry = active
+  return active
+end
+
+local function unmount(mounted: Mounted)
+  for _, listener in iteration.pairs(mounted.listeners) do
+    listener.alive = false
+    listener.request:close()
+  end
+  for i = 1, #mounted.children do
+    unmount(mounted.children[i])
+  end
+  mounted.dom:close()
+end
+
+local function mount(dom: Dom, vnode: VNode): (Mounted, integer)
+  case vnode
+  when text(content) then
+    local node = expect_handle(dom.text:call(Value.is_string(content)))
+    return Mounted(node, vnode, {}, {}), 1
+  when element { tag, props, listeners, children } then
+    local node = expect_handle(dom.element:call(Value.is_string(tag)))
+    local ops = 1
+    for i = 1, #props do
+      dom.attr:call(
+        Value.is_handle(node),
+        Value.is_string(props[i].name),
+        Value.is_string(props[i].value)
+      )
+      ops = ops + 1
+    end
+    local active: {string: ActiveListener} = {}
+    for i = 1, #listeners do
+      local item = listeners[i]
+      active[item.event] = attach_listener(dom, node, item.event, item.handler)
+    end
+    local kids: {Mounted} = {}
+    for i = 1, #children do
+      local child, child_ops = mount(dom, children[i])
+      dom.insert:call(Value.is_handle(node), Value.is_handle(child.dom), Value.is_nil())
+      kids[i] = child
+      ops = ops + child_ops + 1
+    end
+    return Mounted(node, vnode, active, kids), ops
+  end
+end
+
+local function diff_props(
+  dom: Dom,
+  node: browser.BrowserHandle,
+  prev_props: {Prop},
+  next_props: {Prop}
+): integer
+  local old_map = prop_map(prev_props)
+  local new_map = prop_map(next_props)
+  local ops = 0
+
+  for i = 1, #prev_props do
+    local name = prev_props[i].name
+    local next_val? = new_map[name]
+    if next_val == nil then
+      dom.remove_attr:call(Value.is_handle(node), Value.is_string(name))
+      ops = ops + 1
+    end
+  end
+  for i = 1, #next_props do
+    local name = next_props[i].name
+    local val = next_props[i].value
+    local prev_val? = old_map[name]
+    if prev_val ~= val then
+      dom.attr:call(Value.is_handle(node), Value.is_string(name), Value.is_string(val))
+      ops = ops + 1
+    end
+  end
+  return ops
+end
+
+local function diff_listeners(
+  dom: Dom,
+  mounted: Mounted,
+  next_listeners: {Listener}
+)
+  local wanted: {string: EventHandler} = {}
+  for i = 1, #next_listeners do
+    wanted[next_listeners[i].event] = next_listeners[i].handler
+  end
+
+  local stale: {string} = {}
+  for event_name, entry in iteration.pairs(mounted.listeners) do
+    local next_fn? = wanted[event_name]
+    if next_fn == nil then
+      entry.alive = false
+      entry.request:close()
+      stale[#stale + 1] = event_name
+    else
+      -- Reuse the live DOM listener and swap only the Titan handler closure.
+      entry.handler = next_fn
+    end
+  end
+  for i = 1, #stale do
+    mounted.listeners[stale[i]] = nil
+  end
+  for i = 1, #next_listeners do
+    local item = next_listeners[i]
+    local existing? = mounted.listeners[item.event]
+    if existing == nil then
+      mounted.listeners[item.event] = attach_listener(dom, mounted.dom, item.event, item.handler)
+    end
+  end
+end
+
+local function replace_node(
+  dom: Dom,
+  parent: browser.BrowserHandle,
+  prev: Mounted,
+  next_vnode: VNode
+): (Mounted, integer)
+  local fresh, ops = mount(dom, next_vnode)
+  dom.insert:call(Value.is_handle(parent), Value.is_handle(fresh.dom), Value.is_handle(prev.dom))
+  dom.remove:call(Value.is_handle(parent), Value.is_handle(prev.dom))
+  unmount(prev)
+  return fresh, ops + 2
+end
+
+local function patch(
+  dom: Dom,
+  parent: browser.BrowserHandle,
+  prev: Mounted?,
+  next_vnode: VNode
+): (Mounted, integer)
+  if prev == nil then
+    local fresh, ops = mount(dom, next_vnode)
+    dom.insert:call(Value.is_handle(parent), Value.is_handle(fresh.dom), Value.is_nil())
+    return fresh, ops + 1
+  end
+
+  case prev.vnode
+  when text(old_text) then
+    case next_vnode
+    when text(new_text) then
+      local ops = 0
+      if old_text ~= new_text then
+        dom.set_text:call(Value.is_handle(prev.dom), Value.is_string(new_text))
+        ops = 1
+      end
+      prev.vnode = next_vnode
+      return prev, ops
+    else
+      return replace_node(dom, parent, prev, next_vnode)
+    end
+  when element { old_tag = tag, old_props = props } then
+    case next_vnode
+    when element { new_tag = tag, new_props = props, new_listeners = listeners, new_children = children } then
+      if old_tag == new_tag then
+        local ops = diff_props(dom, prev.dom, old_props, new_props)
+        diff_listeners(dom, prev, new_listeners)
+
+        local old_kids = prev.children
+        local shared = #old_kids
+        if #new_children < shared then shared = #new_children end
+
+        local updated: {Mounted} = {}
+        for i = 1, shared do
+          local child, child_ops = patch(dom, prev.dom, old_kids[i], new_children[i])
+          updated[i] = child
+          ops = ops + child_ops
+        end
+        for i = shared + 1, #new_children do
+          local child, child_ops = mount(dom, new_children[i])
+          dom.insert:call(Value.is_handle(prev.dom), Value.is_handle(child.dom), Value.is_nil())
+          updated[i] = child
+          ops = ops + child_ops + 1
+        end
+        for i = shared + 1, #old_kids do
+          dom.remove:call(Value.is_handle(prev.dom), Value.is_handle(old_kids[i].dom))
+          unmount(old_kids[i])
+          ops = ops + 1
+        end
+
+        prev.vnode = next_vnode
+        prev.children = updated
+        return prev, ops
+      end
+    end
+    return replace_node(dom, parent, prev, next_vnode)
+  end
+end
+
+local function flush_effects()
+  local queued = pending_effects
+  pending_effects = {}
+  for i = 1, #queued do
+    local entry = queued[i]
+    local prev_cleanup? = entry.slot.cleanup
+    entry.slot.cleanup = nil
+    if prev_cleanup ~= nil then
+      prev_cleanup()
+    end
+    entry.slot.cleanup = entry.run()
+  end
+end
+
+local function cleanup_all_effects()
+  for i = 1, #effect_slots do
+    local slot? = effect_slots[i]
+    if slot ~= nil then
+      local cleanup? = slot.cleanup
+      slot.cleanup = nil
+      if cleanup ~= nil then
+        cleanup()
+      end
+    end
+  end
+end
+--- Mount `app` onto `dom_root()` and drive events, re-renders, and effects until stopped.
+function render(app: function (): (VNode))
+  reset_session()
+  local dom = Dom.open()
+  active_dom = dom
+  defer do
+    cleanup_all_effects()
+    dom:close()
+    reset_session()
+  end
+
+  local root_node = expect_handle(dom.root:call())
+  defer root_node:close()
+
+  local mounted: Mounted? = nil
+  defer do
+    local current? = mounted
+    if current ~= nil then
+      unmount(current)
+      mounted = nil
+    end
+  end
+
+  local commit = function ()
+    hook_cursor = 1
+    render_count = render_count + 1
+    local tree = app()
+    local next_mounted, ops = patch(dom, root_node, mounted, tree)
+    mounted = next_mounted
+    last_patch_ops = ops
+    flush_effects()
+  end
+
+  commit()
+
+  while true do
+    while #event_queue > 0 or dirty do
+      if #event_queue > 0 then
+        local batch = event_queue
+        event_queue = {}
+        for i = 1, #batch do
+          local item = batch[i]
+          if item.listener.alive then
+            item.listener.handler(item.payload)
+          end
+        end
+      end
+      if dirty then
+        dirty = false
+        commit()
+      end
+    end
+
+    local current = async.running()
+    local token = async.ResumeToken("react.render")
+    waiter = current
+    wait_token = token
+    local detach = function ()
+      if waiter == current then
+        waiter = nil
+        wait_token = nil
+      end
+    end
+    defer detach()
+    if #event_queue == 0 and not dirty then
+      async.suspend(token, detach)
+    end
+  end
+end

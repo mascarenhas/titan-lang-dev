@@ -1,0 +1,57 @@
+{
+  "system": "Saturn",
+  "source": "Cassini-Huygens Mission Archive",
+  "moons": [
+    {
+      "name": "Titan",
+      "radius_km": 2574.7,
+      "orbital_period_days": 15.945,
+      "discovered_year": 1655,
+      "discoverer": "Christiaan Huygens",
+      "atmosphere": "Dense N2 + CH4 (1.45 bar)"
+    },
+    {
+      "name": "Rhea",
+      "radius_km": 763.8,
+      "orbital_period_days": 4.518,
+      "discovered_year": 1672,
+      "discoverer": "Giovanni Cassini"
+    },
+    {
+      "name": "Iapetus",
+      "radius_km": 734.5,
+      "orbital_period_days": 79.33,
+      "discovered_year": 1671,
+      "discoverer": "Giovanni Cassini"
+    },
+    {
+      "name": "Dione",
+      "radius_km": 561.4,
+      "orbital_period_days": 2.737,
+      "discovered_year": 1684,
+      "discoverer": "Giovanni Cassini"
+    },
+    {
+      "name": "Tethys",
+      "radius_km": 531.1,
+      "orbital_period_days": 1.888,
+      "discovered_year": 1684,
+      "discoverer": "Giovanni Cassini"
+    },
+    {
+      "name": "Enceladus",
+      "radius_km": 252.1,
+      "orbital_period_days": 1.37,
+      "discovered_year": 1789,
+      "discoverer": "William Herschel",
+      "atmosphere": "South-polar water-vapor plumes"
+    },
+    {
+      "name": "Mimas",
+      "radius_km": 198.2,
+      "orbital_period_days": 0.942,
+      "discovered_year": 1789,
+      "discoverer": "William Herschel"
+    }
+  ]
+}

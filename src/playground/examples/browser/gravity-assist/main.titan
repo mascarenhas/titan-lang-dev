@@ -1,0 +1,231 @@
+-- 3D Gravity Assist Simulator — Cassini, Saturn, and Titan in Three.js.
+-- Titan runs the 3D Velocity Verlet orbital integrator and path predictor;
+-- editable `bindings.js` owns Three.js meshes, orbit camera, and controls.
+
+local async = import "async"
+local browser = import "browser"
+local math = import "math"
+local string = import "string"
+local orbit = import "orbit"
+
+local type Value = browser.BrowserValue
+local const TIME_SCALE: float = 1.4
+
+local record Scene
+  scene_init: browser.BrowserHandle
+  scene_pose: browser.BrowserHandle
+  trail_point: browser.BrowserHandle
+  scene_draw: browser.BrowserHandle
+  set_text: browser.BrowserHandle
+  control: browser.BrowserHandle
+  on_frame: browser.BrowserHandle
+  configure: browser.BrowserHandle
+  set_prediction: browser.BrowserHandle
+  read_param: browser.BrowserHandle
+  set_telemetry: browser.BrowserHandle
+  cue: browser.BrowserHandle
+end
+
+local function Scene.open(): Scene
+  return Scene {
+    scene_init = browser.binding("scene_init"),
+    scene_pose = browser.binding("scene_pose"),
+    trail_point = browser.binding("trail_point"),
+    scene_draw = browser.binding("scene_draw"),
+    set_text = browser.binding("set_text"),
+    control = browser.binding("control"),
+    on_frame = browser.binding("on_frame"),
+    configure = browser.binding("configure_mission"),
+    set_prediction = browser.binding("set_prediction"),
+    read_param = browser.binding("read_param"),
+    set_telemetry = browser.binding("set_telemetry"),
+    cue = browser.binding("trigger_cue"),
+  }
+end
+
+local function Scene:close()
+  self.scene_init:close()
+  self.scene_pose:close()
+  self.trail_point:close()
+  self.scene_draw:close()
+  self.set_text:close()
+  self.control:close()
+  self.on_frame:close()
+  self.configure:close()
+  self.set_prediction:close()
+  self.read_param:close()
+  self.set_telemetry:close()
+  self.cue:close()
+end
+
+local function Scene:is_down(name: string): boolean
+  case self.control:call(Value.is_string(name))
+  when is_boolean(pressed) then return pressed
+  end
+  return false
+end
+
+local function Scene:param(name: string, fallback: float): float
+  case self.read_param:call(Value.is_string(name))
+  when is_float(v) then return v
+  end
+  return fallback
+end
+
+local function Scene:read_controls(plan: orbit.MissionPlan): orbit.Controls
+  local preset = 0
+  if self:is_down("preset1") then preset = 1
+  elseif self:is_down("preset2") then preset = 2
+  elseif self:is_down("preset3") then preset = 3 end
+  return orbit.Controls {
+    prograde = self:is_down("burn"), retrograde = self:is_down("retro"),
+    normal_up = self:is_down("up"), normal_down = self:is_down("down"),
+    launch = self:is_down("launch"), reset = self:is_down("restart"),
+    preset = preset, sliders_dirty = self:is_down("adjust"),
+    angle_deg = self:param("angle", plan.angle_deg),
+    speed = self:param("speed", plan.speed),
+    pitch_deg = self:param("pitch", plan.pitch_deg),
+    titan_phase_deg = self:param("phase", plan.titan_phase_deg),
+  }
+end
+
+local function open_frames(source: browser.BrowserHandle):
+    async.CoalescingSubscription<|float, string|>
+  local req: browser.BrowserRequest? = nil
+  return async.CoalescingSubscription<|float, string|>(
+    function (publish, fail, _finish): async.SubscriptionActions<|float|>
+      local actions = async.SubscriptionActions<|float|>(
+        function () local open? = req; if open then open:cancel() end end,
+        function (_drain) local open? = req; if open then req = nil; open:close() end end
+      )
+      req = source:listen(function (...: Value): Value
+        case ...[1] when is_float(dt) then publish(dt) end
+        return Value.is_nil()
+      end, function (...: Value): Value
+        fail(browser.failure_text(...[1], ...[2]) or "animation frame failed")
+        return Value.is_nil()
+      end)
+      return actions
+    end
+  )
+end
+
+local function phase_info(phase: orbit.MissionPhase, dv: float): (integer, string, string)
+  case phase
+  when planning() then
+    return 0, "PLAN", "Adjust sliders or press Launch"
+  when flying(_, assisted, ring_crossed) then
+    if assisted and ring_crossed then
+      return 1, "ASSIST+RING", string.format("Ring dive + gravity assist (Δv %+.2f)", dv)
+    elseif assisted then
+      return 1, "ASSIST", string.format("Titan gravity assist active (Δv %+.2f)", dv)
+    elseif ring_crossed then
+      return 1, "RING DIVE", "Crossed Saturn ring plane"
+    end
+    return 1, "CRUISE", "Space burn · Shift retro · Q/E plane · drag to orbit"
+  when intercept(gain, _, score) then
+    return 2, "INTERCEPT", string.format("Gate threaded! Δv %+.2f · Score %d", gain, score)
+  when captured(body) then
+    return 3, "CAPTURED", string.format("Captured by %s · press Reset", body)
+  when escaped(gain) then
+    return 4, "ESCAPED", string.format("Hyperbolic escape · Δv %+.2f · press Reset", gain)
+  end
+end
+
+local function Scene:sync_mission(plan: orbit.MissionPlan, preset_id: integer)
+  self.configure:call(
+    Value.is_integer(preset_id), Value.is_string(plan.name), Value.is_string(plan.goal_label),
+    Value.is_float(plan.angle_deg), Value.is_float(plan.speed),
+    Value.is_float(plan.pitch_deg), Value.is_float(plan.titan_phase_deg),
+    Value.is_float(plan.gate.x), Value.is_float(plan.gate.y), Value.is_float(plan.gate.z),
+    Value.is_float(orbit.GATE_RADIUS)
+  )
+  self.set_prediction:call(Value.is_string(orbit.predict_path(plan, 130)))
+end
+
+local function Scene:render(craft: orbit.Craft, plan: orbit.MissionPlan, best: integer,
+                            append_trail: boolean)
+  local titan = orbit.titan_position(craft.time, plan.titan_phase_deg)
+  local code, tag, note = phase_info(craft.phase, craft.dv_gain)
+  self.scene_pose:call(
+    Value.is_float(0.0), Value.is_float(0.0), Value.is_float(0.0),
+    Value.is_float(titan.x), Value.is_float(titan.y), Value.is_float(titan.z),
+    Value.is_float(craft.pos.x), Value.is_float(craft.pos.y), Value.is_float(craft.pos.z)
+  )
+  if append_trail then
+    self.trail_point:call(Value.is_float(craft.pos.x), Value.is_float(craft.pos.y),
+      Value.is_float(craft.pos.z))
+  end
+
+  local speed = craft.vel:length()
+  self.set_telemetry:call(Value.is_float(speed), Value.is_float(craft.dv_gain),
+    Value.is_float(craft.titan_dist), Value.is_float(craft.fuel),
+    Value.is_float(craft:specific_energy()), Value.is_integer(craft.burning),
+    Value.is_integer(code), Value.is_integer(best), Value.is_string(note))
+  self.set_text:call(Value.is_string(string.format(
+    "%s | v %.2f | Δv %+.2f | Titan %.1f | Fuel %.0f%%",
+    tag, speed, craft.dv_gain, craft.titan_dist, craft.fuel
+  )))
+  self.scene_draw:call()
+end
+
+function main(_args: {string}): integer
+  local scene = Scene.open()
+  defer scene:close()
+  scene.scene_init:call()
+
+  local frames = open_frames(scene.on_frame)
+  defer frames:close()
+
+  local preset_id = 1
+  local best = 0
+  local plan = orbit.make_preset(preset_id)
+  local craft = orbit.Craft.from_plan(plan, true)
+  scene:sync_mission(plan, preset_id)
+  scene.cue:call(Value.is_string("launch"))
+  scene:render(craft, plan, best, true)
+
+  while true do
+    case frames:next()
+    when item(raw_dt) then
+      local dt = math.min(math.max(raw_dt, 0.0), 0.05) * TIME_SCALE
+      local ctrl = scene:read_controls(plan)
+      local append_trail = false
+
+      if ctrl.preset >= 1 and ctrl.preset <= 3 then
+        preset_id = ctrl.preset
+        plan = orbit.make_preset(preset_id)
+        craft = orbit.Craft.from_plan(plan, true)
+        scene:sync_mission(plan, preset_id)
+        scene.cue:call(Value.is_string("launch"))
+        append_trail = true
+      elseif ctrl.sliders_dirty then
+        plan.angle_deg = ctrl.angle_deg; plan.speed = ctrl.speed
+        plan.pitch_deg = ctrl.pitch_deg; plan.titan_phase_deg = ctrl.titan_phase_deg
+        craft = orbit.Craft.from_plan(plan, false)
+        scene.set_prediction:call(Value.is_string(orbit.predict_path(plan, 130)))
+        scene.cue:call(Value.is_string("plan"))
+      elseif ctrl.reset then
+        craft = orbit.Craft.from_plan(plan, false)
+        scene.cue:call(Value.is_string("plan"))
+      elseif ctrl.launch then
+        craft = orbit.Craft.from_plan(plan, true)
+        scene.cue:call(Value.is_string("launch"))
+        append_trail = true
+      elseif dt > 0.0 then
+        local cue? = craft:step(dt, plan, ctrl)
+        case craft.phase
+        when flying(_, _, _) then append_trail = true
+        when intercept(_, _, score) then
+          append_trail = true
+          if score > best then best = score end
+        end
+        if cue then scene.cue:call(Value.is_string(cue)) end
+      end
+      scene:render(craft, plan, best, append_trail)
+    when error(message) then raise message
+    else break
+    end
+  end
+  return 0
+end

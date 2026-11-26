@@ -1,0 +1,259 @@
+-- Titan surface physics, terrain geometry, and mission state machine for
+-- Huygens Landing on Titan. All simulation rules live in pure Titan.
+
+local math = import "math"
+local string = import "string"
+
+const WORLD_WIDTH: float = 320.0
+const TERRAIN_STEP: float = 10.0
+
+-- Scaled from Titan's real 1.352 m/s^2 gravity and dense 1.45-bar N2 atmosphere.
+const GRAVITY: float = 18.0
+const CHUTE_DRAG: float = 0.075
+const BODY_DRAG: float = 0.0028
+const THRUST_ACC: float = 52.0
+const FUEL_BURN: float = 22.0
+const PROBE_FOOT_Y: float = 7.0
+const SAFE_VY: float = 20.0
+const SAFE_VX: float = 14.0
+const SAFE_TILT: float = 0.30
+
+record Pad
+  const name: string
+  const x1: float
+  const x2: float
+  const y: float
+  const multiplier: integer
+end
+
+record Lake
+  const name: string
+  const x1: float
+  const x2: float
+  const y: float
+end
+
+union Phase
+  chute(canopy: float)
+  retro()
+  landed(pad: string, score: integer)
+  crashed(reason: string, in_lake: boolean)
+end
+
+record Controls
+  left: boolean
+  right: boolean
+  thrust: boolean
+  reset: boolean
+end
+
+record Probe
+  x: float
+  y: float
+  vx: float
+  vy: float
+  angle: float
+  fuel: float
+  wind_base: float
+  elapsed: float
+  thrusting: boolean
+  rcs: integer
+  phase: Phase
+end
+
+-- 33 terrain heights across x = 0..320 (10-pixel intervals) matching pads and lakes.
+const HEIGHTS: const { float } = {
+  150.0, 146.0, 154.0, 162.0, 166.0, 170.0, 172.0,
+  172.0, 172.0, 172.0, 172.0, 172.0, 172.0,
+  178.0, 186.0, 186.0, 186.0, 186.0, 186.0,
+  168.0, 154.0, 154.0, 154.0, 154.0,
+  186.0, 186.0, 186.0,
+  170.0, 162.0, 162.0, 162.0,
+  152.0, 144.0,
+}
+
+const PADS: const { Pad } = {
+  Pad { name = "ADIRI", x1 = 70.0, x2 = 120.0, y = 172.0, multiplier = 1 },
+  Pad { name = "XANADU", x1 = 200.0, x2 = 230.0, y = 154.0, multiplier = 2 },
+  Pad { name = "SHANGRI-LA", x1 = 280.0, x2 = 300.0, y = 162.0, multiplier = 3 },
+}
+
+const LAKES: const { Lake } = {
+  Lake { name = "Kraken Mare", x1 = 140.0, x2 = 180.0, y = 186.0 },
+  Lake { name = "Ligeia Mare", x1 = 240.0, x2 = 260.0, y = 186.0 },
+}
+
+local function clamp(x: float, lo: float, hi: float): float
+  if x < lo then return lo end
+  if x > hi then return hi end
+  return x
+end
+
+function ground_y(x: float): float
+  local scaled = clamp(x, 0.0, WORLD_WIDTH) / TERRAIN_STEP
+  local idx: integer = math.floor(scaled) + 1
+  if idx >= #HEIGHTS then return HEIGHTS[#HEIGHTS] end
+  local frac = scaled - math.floor(scaled)
+  return HEIGHTS[idx] + (HEIGHTS[idx + 1] - HEIGHTS[idx]) * frac
+end
+
+local function find_pad(x: float): Pad?
+  for i = 1, #PADS do
+    local pad = PADS[i]
+    if x >= pad.x1 + 4.0 and x <= pad.x2 - 4.0 then return pad end
+  end
+  return nil
+end
+
+local function find_lake(x: float): Lake?
+  for i = 1, #LAKES do
+    local lake = LAKES[i]
+    if x >= lake.x1 and x <= lake.x2 then return lake end
+  end
+  return nil
+end
+
+-- Serialize world geometry once at startup so rendering matches collision checks.
+function serialize_world(): (string, string, string)
+  local h_out = string.writer()
+  defer h_out:close()
+  for i = 1, #HEIGHTS do
+    if i > 1 then h_out:write(",") end
+    h_out:write(string.format("%.0f", HEIGHTS[i]))
+  end
+
+  local p_out = string.writer()
+  defer p_out:close()
+  for i = 1, #PADS do
+    local pad = PADS[i]
+    if i > 1 then p_out:write(";") end
+    p_out:write(string.format("%s,%.0f,%.0f,%.0f,%d",
+      pad.name, pad.x1, pad.x2, pad.y, pad.multiplier))
+  end
+
+  local l_out = string.writer()
+  defer l_out:close()
+  for i = 1, #LAKES do
+    local lake = LAKES[i]
+    if i > 1 then l_out:write(";") end
+    l_out:write(string.format("%s,%.0f,%.0f,%.0f", lake.name, lake.x1, lake.x2, lake.y))
+  end
+  return h_out:drain(), p_out:drain(), l_out:drain()
+end
+
+-- Start clear of the top HUD so the striped Huygens parachute is visible immediately.
+function Probe.launch(wind_base: float): Probe
+  return Probe {
+    x = 58.0, y = 38.0, vx = 4.0, vy = 4.0, angle = 0.0, fuel = 100.0,
+    wind_base = wind_base, elapsed = 0.0, thrusting = false, rcs = 0,
+    phase = Phase.chute(0.0),
+  }
+end
+
+function Probe:altitude(): float
+  return math.max(0.0, ground_y(self.x) - (self.y + PROBE_FOOT_Y))
+end
+
+function Probe:wind_at(): float
+  return self.wind_base * (0.25 + 0.75 * clamp(self:altitude() / 140.0, 0.0, 1.0))
+end
+
+local function Probe:settle(ground: float): string
+  self.y = ground - PROBE_FOOT_Y
+  self.thrusting = false
+  self.rcs = 0
+
+  local lake? = find_lake(self.x)
+  if lake then
+    self.phase = Phase.crashed("Splashed into " .. lake.name, true)
+    return "splash"
+  end
+
+  local pad? = find_pad(self.x)
+  if not pad then
+    self.phase = Phase.crashed("Hit rocky water-ice slope", false)
+    return "crash"
+  end
+  if self.vy > SAFE_VY then
+    self.phase = Phase.crashed("Descent speed too high", false)
+    return "crash"
+  end
+  if math.abs(self.vx) > SAFE_VX then
+    self.phase = Phase.crashed("Lateral drift too fast", false)
+    return "crash"
+  end
+  if math.abs(self.angle) > SAFE_TILT then
+    self.phase = Phase.crashed("Tilt angle too steep", false)
+    return "crash"
+  end
+
+  local fuel_pts: integer = math.floor(self.fuel * 2.0)
+  local soft_pts: integer = math.floor(math.max(0.0, SAFE_VY - self.vy) * 5.0)
+  local score = pad.multiplier * (100 + fuel_pts + soft_pts)
+  self.vx = 0.0
+  self.vy = 0.0
+  self.angle = 0.0
+  self.phase = Phase.landed(pad.name, score)
+  return "touchdown"
+end
+
+function Probe:step(dt: float, ctrl: Controls): string?
+  self.elapsed = self.elapsed + dt
+  local in_chute = false
+  local active = false
+  case self.phase
+  when chute(_) then in_chute = true; active = true
+  when retro() then active = true
+  end
+  if not active then
+    self.thrusting = false
+    self.rcs = 0
+    return nil
+  end
+
+  local event: string? = nil
+  if in_chute and ctrl.thrust then
+    in_chute = false
+    self.phase = Phase.retro()
+    event = "chute_cut"
+  end
+
+  local rvx = self.vx - self:wind_at()
+  local rvy = self.vy
+  local air = math.sqrt(rvx * rvx + rvy * rvy)
+  local drag = in_chute and CHUTE_DRAG or BODY_DRAG
+  local ax = -drag * rvx * air
+  local ay = GRAVITY - drag * rvy * air
+  self.thrusting = false
+  self.rcs = 0
+
+  if in_chute then
+    if ctrl.left then ax = ax - 14.0; self.rcs = -1
+    elseif ctrl.right then ax = ax + 14.0; self.rcs = 1 end
+    local sway = clamp(-rvx * 0.025, -0.22, 0.22)
+    self.angle = self.angle + (sway - self.angle) * math.min(1.0, dt * 6.0)
+    self.phase = Phase.chute(sway)
+  else
+    if ctrl.left then self.angle = clamp(self.angle - 2.1 * dt, -1.15, 1.15); self.rcs = -1
+    elseif ctrl.right then self.angle = clamp(self.angle + 2.1 * dt, -1.15, 1.15); self.rcs = 1 end
+    if ctrl.thrust and self.fuel > 0.0 then
+      self.thrusting = true
+      self.fuel = math.max(0.0, self.fuel - FUEL_BURN * dt)
+      ax = ax + math.sin(self.angle) * THRUST_ACC
+      ay = ay - math.cos(self.angle) * THRUST_ACC
+    end
+  end
+
+  self.vx = self.vx + ax * dt
+  self.vy = self.vy + ay * dt
+  self.x = self.x + self.vx * dt
+  self.y = self.y + self.vy * dt
+
+  if self.x < 8.0 then self.x = 8.0; if self.vx < 0.0 then self.vx = -self.vx * 0.3 end
+  elseif self.x > WORLD_WIDTH - 8.0 then self.x = WORLD_WIDTH - 8.0; if self.vx > 0.0 then self.vx = -self.vx * 0.3 end end
+  if self.y < 18.0 then self.y = 18.0; if self.vy < 0.0 then self.vy = 0.0 end end
+
+  local ground = ground_y(self.x)
+  if self.y + PROBE_FOOT_Y >= ground then return self:settle(ground) end
+  return event
+end
