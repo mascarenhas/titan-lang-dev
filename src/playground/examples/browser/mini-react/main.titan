@@ -1,0 +1,260 @@
+local async = import "async"
+local react = import "react"
+local strings = import "string"
+local timer = import "timer"
+
+record Task
+  const id: integer
+  const title: string
+  const done: boolean
+end
+
+local function initial_tasks(): {Task}
+  return {
+    Task(1, "Verify Huygens thermal shield", true),
+    Task(2, "Confirm Saturn orbit insertion burn", false),
+    Task(3, "Sample Titan methane haze at 170 km", false),
+  }
+end
+
+local function format_clock(seconds: integer): string
+  local mins = seconds // 60
+  local secs = seconds % 60
+  return strings.format("%02d:%02d", mins, secs)
+end
+
+local function count_done(tasks: const? {Task}): integer
+  local n = 0
+  for i = 1, #tasks do
+    if tasks[i].done then n = n + 1 end
+  end
+  return n
+end
+
+local function toggle_task(tasks: {Task}, target_id: integer): {Task}
+  local next_list: {Task} = {}
+  for i = 1, #tasks do
+    local item = tasks[i]
+    if item.id == target_id then
+      next_list[i] = Task(item.id, item.title, not item.done)
+    else
+      next_list[i] = item
+    end
+  end
+  return next_list
+end
+
+local function remove_task(tasks: {Task}, target_id: integer): {Task}
+  local next_list: {Task} = {}
+  for i = 1, #tasks do
+    local item = tasks[i]
+    if item.id ~= target_id then
+      next_list[#next_list + 1] = item
+    end
+  end
+  return next_list
+end
+
+local function append_task(tasks: {Task}, id: integer, title: string): {Task}
+  local next_list: {Task} = {}
+  for i = 1, #tasks do
+    next_list[i] = tasks[i]
+  end
+  next_list[#next_list + 1] = Task(id, title, false)
+  return next_list
+end
+
+local function filter_tasks(tasks: {Task}, mode: string): {Task}
+  local visible: {Task} = {}
+  for i = 1, #tasks do
+    local item = tasks[i]
+    if mode == "all" or (mode == "open" and not item.done) or (mode == "done" and item.done) then
+      visible[#visible + 1] = item
+    end
+  end
+  return visible
+end
+
+local function filter_pill(label: string, mode: string, active: string, set_filter: function (string): ()): react.VNode
+  local cls = active == mode and "mr-pill mr-pill-active" or "mr-pill"
+  return react.button {
+    class = cls,
+    text = label,
+    on_click = function (_: string) set_filter(mode) end,
+  }
+end
+
+--- Interactive checklist component written with named arguments in lieu of JSX.
+local function App(): react.VNode
+  local tasks, set_tasks = react.useState(initial_tasks())
+  local next_id, set_next_id = react.useState(4)
+  local draft, set_draft = react.useState("")
+  local filter, set_filter = react.useState("all")
+  local clock_running, set_clock_running = react.useState(false)
+  local elapsed, set_elapsed, update_elapsed = react.useState(0)
+
+  local done_count = count_done(tasks)
+  local visible = filter_tasks(tasks, filter)
+
+  -- Effect 1: mirror reconciliation and checklist progress to the host status line.
+  react.useEffect(function (): react.Cleanup?
+    local renders, ops = react.stats()
+    local unit = ops == 1 and "DOM op" or "DOM ops"
+    react.set_status(strings.format(
+      "Render #%d · %d %s · %d/%d complete",
+      renders, ops, unit, done_count, #tasks
+    ))
+    return nil
+  end, nil)
+
+  -- Effect 2: drive a real async `timer.ticker` while the clock runs, and cancel on cleanup.
+  react.useEffect(function (): react.Cleanup?
+    if not clock_running then return nil end
+    local ticker_task = async.run<|nil, value|>(function (): nil
+      local ticker = timer.ticker(1000)
+      defer ticker:close()
+      while ticker:tick() do
+        update_elapsed(function (s) return s + 1 end)
+      end
+      return nil
+    end)
+    return function ()
+      ticker_task:cancel(async.CancellationReason.simple("clock paused"))
+    end
+  end, {clock_running})
+
+  local add_draft = function ()
+    if #draft == 0 then return end
+    set_tasks(append_task(tasks, next_id, draft))
+    set_next_id(next_id + 1)
+    set_draft("")
+  end
+
+  local list_nodes: {react.VNode} = {}
+  for i = 1, #visible do
+    local item = visible[i]
+    local item_id = item.id
+    list_nodes[i] = react.li {
+      class = "mr-item",
+      children = {
+        react.label {
+          class = "mr-item-label",
+          children = {
+            react.input {
+              input_type = "checkbox",
+              checked = item.done,
+              aria_label = "Toggle " .. item.title,
+              on_change = function (_: string)
+                set_tasks(toggle_task(tasks, item_id))
+              end,
+            },
+            react.span {
+              class = item.done and "mr-item-done" or "",
+              text = item.title,
+            },
+          },
+        },
+        react.button {
+          class = "mr-btn mr-btn-ghost",
+          text = "Remove",
+          aria_label = "Remove " .. item.title,
+          on_click = function (_: string)
+            set_tasks(remove_task(tasks, item_id))
+          end,
+        },
+      },
+    }
+  end
+
+  local body = react.p {
+    class = "mr-empty",
+    text = "No tasks match the active filter.",
+  }
+  if #list_nodes > 0 then
+    body = react.ul { class = "mr-list", children = list_nodes }
+  end
+
+  return react.section {
+    class = "mr-card",
+    children = {
+      react.header {
+        class = "mr-header",
+        children = {
+          react.div {
+            children = {
+              react.div { class = "mr-kicker", text = "Titan Mini-React · Named Args" },
+              react.h1 { class = "mr-title", text = "Cassini Flight Checklist" },
+            },
+          },
+          react.div {
+            class = "mr-clock",
+            children = {
+              react.span { class = "mr-clock-readout", text = format_clock(elapsed) },
+              react.button {
+                class = "mr-btn mr-btn-sm",
+                text = clock_running and "Pause" or "Timer",
+                on_click = function (_: string)
+                  set_clock_running(not clock_running)
+                end,
+              },
+              react.button {
+                class = "mr-btn mr-btn-sm",
+                text = "Reset",
+                disabled = elapsed == 0 and not clock_running,
+                on_click = function (_: string)
+                  set_clock_running(false)
+                  set_elapsed(0)
+                end,
+              },
+            },
+          },
+        },
+      },
+      react.div {
+        class = "mr-composer",
+        children = {
+          react.input {
+            class = "mr-input",
+            input_type = "text",
+            placeholder = "Add a flight task and press Enter...",
+            value = draft,
+            aria_label = "New flight task",
+            on_input = function (text: string) set_draft(text) end,
+            on_keydown = function (key: string)
+              if key == "Enter" then add_draft() end
+            end,
+          },
+          react.button {
+            class = "mr-btn mr-btn-primary",
+            text = "Add",
+            disabled = #draft == 0,
+            on_click = function (_: string) add_draft() end,
+          },
+        },
+      },
+      react.div {
+        class = "mr-filters",
+        children = {
+          react.div {
+            class = "mr-filter-group",
+            children = {
+              filter_pill("All", "all", filter, set_filter),
+              filter_pill("Open", "open", filter, set_filter),
+              filter_pill("Done", "done", filter, set_filter),
+            },
+          },
+          react.span {
+            class = "mr-summary",
+            text = strings.format("%d of %d complete", done_count, #tasks),
+          },
+        },
+      },
+      body,
+    },
+  }
+end
+
+function main(_args: {string}): integer
+  react.render(App)
+  return 0
+end

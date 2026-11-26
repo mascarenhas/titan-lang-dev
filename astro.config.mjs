@@ -82,4 +82,8 @@ export default defineConfig({
       langs: [titanLang],
     },
   },
+  // The playground engine starts `{ type: "module" }` Workers that import verified blob-URL modules.
+  vite: {
+    worker: { format: "es" },
+  },
 });

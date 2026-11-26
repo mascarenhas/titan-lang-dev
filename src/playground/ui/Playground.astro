@@ -1,0 +1,266 @@
+---
+import { copy } from "../content/copy";
+import { examples } from "../examples";
+import "./playground.css";
+
+export interface Props {
+  version: string;
+}
+
+const { version } = Astro.props;
+const first = examples[0];
+const stages = ["check", "compile", "link"] as const;
+const tabs = ["output", "preview", "problems", "inspect"] as const;
+---
+
+<div class="pg-app" data-pg="app" data-version={version} data-drawer="closed" data-mseg="code" data-compact="false">
+  <div class="pg-strip" role="toolbar" aria-label={copy.toolbar.label}>
+    <div class="pg-strip-group">
+      <button
+        type="button"
+        class="pg-icon-btn pg-desk-only"
+        data-pg="drawer-toggle"
+        aria-pressed="false"
+        aria-controls="pg-drawer"
+        title={copy.toolbar.filesHint}
+      >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5"></rect><path d="M5.75 2.5v11"></path>
+        </svg>
+        <span class="pg-sr-only">{copy.toolbar.files}</span>
+      </button>
+      <button
+        type="button"
+        class="pg-example-btn"
+        data-pg="example-btn"
+        aria-haspopup="dialog"
+        aria-expanded="false"
+        aria-controls="pg-gallery"
+      >
+        <span class="pg-kicker pg-desk-only">{copy.gallery.kicker}</span>
+        <span class="pg-example-title" data-pg="example-title">{first.title}</span>
+        <span class="pg-caret" aria-hidden="true">▾</span>
+      </button>
+      <span class="pg-vrule pg-desk-only" aria-hidden="true"></span>
+      <div class="pg-file-tabs pg-desk-only" role="tablist" aria-label={copy.files.project} data-pg="file-tabs"></div>
+    </div>
+    <span class="pg-spacer"></span>
+    <div class="pg-strip-group">
+      <button
+        type="button"
+        class="pg-pipeline"
+        data-pg="pipeline"
+        aria-haspopup="dialog"
+        aria-expanded="false"
+        aria-controls="pg-toolchain"
+        title={copy.pipeline.panelHint}
+      >
+        {
+          stages.map((stage) => (
+            <span class="pg-stage" data-stage={stage} data-state={stage === "check" ? "warming" : "queued"}>
+              <span class="pg-lamp" aria-hidden="true" />
+              <span class="pg-stage-label">{copy.pipeline.stages[stage]}</span>
+              <small />
+            </span>
+          ))
+        }
+      </button>
+      <span class="pg-sr-only" role="status" aria-live="polite" data-pg="pipeline-status"></span>
+      <span class="pg-vrule pg-desk-only" aria-hidden="true"></span>
+      <button type="button" class="pg-btn pg-desk-only" data-pg="share" title={copy.toolbar.shareHint}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <path d="M6.5 9.5l3-3M7 4.5l1.2-1.2a2.6 2.6 0 013.7 3.7L10.7 8.2M9 11.5l-1.2 1.2a2.6 2.6 0 01-3.7-3.7L5.3 7.8" stroke-linecap="round"></path>
+        </svg>
+        <span>{copy.toolbar.share}</span>
+      </button>
+      <button type="button" class="pg-icon-btn pg-desk-only" data-pg="download" title={copy.toolbar.downloadHint}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <path d="M8 2.5v8M4.75 7.5L8 10.75 11.25 7.5M3 13.25h10" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+        <span class="pg-sr-only">{copy.toolbar.download}</span>
+      </button>
+      <button
+        type="button"
+        class="pg-icon-btn pg-compact-only"
+        data-pg="more"
+        aria-haspopup="menu"
+        aria-expanded="false"
+        aria-controls="pg-more"
+        aria-label={copy.toolbar.more}
+      >
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <circle cx="3.5" cy="8" r="1.3"></circle><circle cx="8" cy="8" r="1.3"></circle><circle cx="12.5" cy="8" r="1.3"></circle>
+        </svg>
+      </button>
+      <button type="button" class="pg-btn pg-btn-run" data-pg="run" title={copy.toolbar.runHint} aria-disabled="true">
+        {copy.toolbar.run}
+      </button>
+    </div>
+  </div>
+  <div class="pg-ring cassini-ring" aria-hidden="true"></div>
+
+  <div class="pg-segmented" role="tablist" aria-label={copy.toolbar.segmentsLabel}>
+    {
+      (["code", "output", "preview"] as const).map((segment) => (
+        <button type="button" role="tab" data-segment={segment} aria-selected={String(segment === "code")}>
+          {copy.toolbar.segments[segment]}
+        </button>
+      ))
+    }
+  </div>
+
+  <div class="pg-workspace" data-pg="workspace">
+    <aside class="pg-drawer" id="pg-drawer" data-pg="drawer" aria-label={copy.files.project}>
+      <div class="pg-drawer-head">
+        <span class="pg-kicker">{copy.files.project}</span>
+        <button type="button" class="pg-icon-btn pg-icon-btn--small" data-pg="new-file" title={copy.toolbar.newFile} aria-label={copy.toolbar.newFile}>+</button>
+      </div>
+      <ul class="pg-tree" role="tree" aria-label={copy.files.project} data-pg="project-tree"></ul>
+      <div class="pg-drawer-head">
+        <span class="pg-kicker">{copy.files.stdlib}</span>
+      </div>
+      <button type="button" class="pg-tree-toggle" data-pg="stdlib-toggle" aria-expanded="false" aria-controls="pg-stdlib-tree">
+        <span class="pg-tree-icon" aria-hidden="true">▸</span>titan/<span class="pg-tree-meta">{copy.files.readOnly}</span>
+      </button>
+      <ul class="pg-tree pg-tree--library" id="pg-stdlib-tree" role="tree" aria-label={copy.files.stdlib} data-pg="stdlib-tree" hidden></ul>
+      <p class="pg-drawer-note"><b>{copy.files.persistence}</b> {copy.files.privacy}</p>
+    </aside>
+
+    <section class="pg-editor" data-pg="editor-pane" aria-label={copy.toolbar.segments.code}>
+      <div class="pg-mobile-files" role="tablist" aria-label={copy.files.project} data-pg="mobile-file-tabs"></div>
+      <div class="pg-editor-host" data-pg="editor"></div>
+      <div class="pg-editor-status" data-pg="editor-status"></div>
+    </section>
+
+    <div
+      class="pg-splitter"
+      data-pg="splitter"
+      role="separator"
+      aria-orientation="vertical"
+      aria-valuemin="20"
+      aria-valuemax="80"
+      aria-label={`${copy.toolbar.segments.code} / ${copy.toolbar.segments.output}`}
+      tabindex="0"
+    ></div>
+
+    <section class="pg-pane" data-pg="output-pane" aria-label={copy.toolbar.segments.output}>
+      <div class="pg-pane-tabs" role="tablist" aria-label={copy.toolbar.segments.output}>
+        {
+          tabs.map((tab) => (
+            <button type="button" class="pg-ptab" role="tab" data-tab={tab} aria-selected={String(tab === "output")} aria-controls={`pg-panel-${tab}`}>
+              {copy.toolbar.tabs[tab]}
+              {tab === "problems" && <span class="pg-count" data-pg="problem-count" hidden>0</span>}
+            </button>
+          ))
+        }
+        <span class="pg-spacer"></span>
+        <span class="pg-status-chip" data-pg="status-chip" data-kind="" role="status" aria-live="polite">
+          <span class="pg-lamp" aria-hidden="true"></span><span data-pg-text>{copy.output.chipReady}</span>
+        </span>
+      </div>
+      <div class="pg-pane-body">
+        <div class="pg-panel" id="pg-panel-output" data-panel="output" role="tabpanel">
+          <div class="pg-warming" data-pg="warming" hidden></div>
+          <div class="pg-term" data-pg="terminal" aria-live="polite"></div>
+          <div class="pg-receipt" data-pg="receipt" hidden></div>
+        </div>
+        <div class="pg-panel" id="pg-panel-preview" data-panel="preview" role="tabpanel" hidden>
+          <div class="pg-preview-wrap">
+            <div class="pg-frame-chrome">
+              <span class="pg-kicker">{copy.preview.kicker}</span>
+              <span>{copy.preview.sandbox}</span>
+            </div>
+            <div class="pg-bindings-row" data-pg="bindings-row" hidden>
+              <span>{copy.preview.bindings}</span>
+              <span class="pg-bindings" data-pg="bindings-list"></span>
+            </div>
+            <div class="pg-sandbox" data-pg="preview-host"></div>
+            <p class="pg-preview-empty" data-pg="preview-empty">{copy.preview.empty}</p>
+            <div class="pg-console">
+              <div class="pg-console-head">
+                <span class="pg-kicker">{copy.preview.console}</span>
+                <span>{copy.preview.consoleChannels}</span>
+                <span class="pg-spacer"></span>
+                <span class="pg-mono" data-pg="preview-clock">00:00.0</span>
+              </div>
+              <div class="pg-term" data-pg="preview-console" aria-live="polite"></div>
+            </div>
+          </div>
+        </div>
+        <div class="pg-panel" id="pg-panel-problems" data-panel="problems" role="tabpanel" hidden>
+          <ul class="pg-problems" data-pg="problems"></ul>
+        </div>
+        <div class="pg-panel" id="pg-panel-inspect" data-panel="inspect" role="tabpanel" hidden>
+          <div class="pg-inspect" data-pg="inspect" data-empty>
+            <div class="pg-subtabs">
+              <span class="pg-kicker">{copy.inspect.generatedC}</span>
+              <span class="pg-chips" role="tablist" aria-label={copy.inspect.generatedC} data-pg="inspect-chips"></span>
+              <span class="pg-spacer"></span>
+              <span class="pg-stale" data-pg="inspect-stale" hidden>{copy.inspect.stale}</span>
+              <span class="pg-hint" data-pg="inspect-hint"></span>
+            </div>
+            <p class="pg-inspect-empty" data-pg="inspect-empty">{copy.inspect.empty}</p>
+            <div class="pg-ccode" data-pg="inspect-code"></div>
+            <div class="pg-wasm" data-pg="inspect-wasm"><p class="pg-muted">{copy.inspect.wasmEmpty}</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <button type="button" class="pg-sheet" data-pg="sheet" data-kind="">
+    <span class="pg-grab" aria-hidden="true"></span>
+    <span class="pg-lamp" aria-hidden="true"></span>
+    <span data-pg-text>{copy.output.chipReady}</span>
+    <span class="pg-spacer"></span>
+    <span aria-hidden="true">▴</span>
+  </button>
+
+  <div class="pg-mobile-bar">
+    <button type="button" class="pg-btn" data-pg="mobile-files" aria-pressed="false" aria-controls="pg-drawer">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+        <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5"></rect><path d="M5.75 2.5v11"></path>
+      </svg>
+      {copy.toolbar.files}
+    </button>
+    <button type="button" class="pg-btn" data-pg="mobile-share">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+        <path d="M6.5 9.5l3-3M7 4.5l1.2-1.2a2.6 2.6 0 013.7 3.7L10.7 8.2M9 11.5l-1.2 1.2a2.6 2.6 0 01-3.7-3.7L5.3 7.8" stroke-linecap="round"></path>
+      </svg>
+      {copy.toolbar.share}
+    </button>
+    <button type="button" class="pg-btn pg-btn-run" data-pg="mobile-run" aria-disabled="true">{copy.toolbar.run}</button>
+  </div>
+
+  <div class="pg-popover pg-gallery" id="pg-gallery" role="dialog" aria-label={copy.gallery.label} data-pg="gallery" hidden></div>
+
+  <div class="pg-popover pg-toolchain" id="pg-toolchain" role="dialog" aria-label={copy.pipeline.panelTitle} data-pg="toolchain" hidden>
+    <span class="pg-kicker">{copy.pipeline.panelTitle}</span>
+    <ul class="pg-panel-tiers" data-pg="panel-tiers"></ul>
+    <p class="pg-session-note" data-pg="panel-session" hidden>{copy.pipeline.sessionOnly}</p>
+    <button type="button" class="pg-btn" data-pg="clear-cache">{copy.pipeline.clearCache}</button>
+    <div class="pg-panel-rule" aria-hidden="true"></div>
+    <span class="pg-kicker">{copy.output.stdinTitle}</span>
+    <label class="pg-check">
+      <input type="checkbox" data-pg="stdin-connect" />
+      {copy.output.stdinConnect}
+    </label>
+    <textarea class="pg-stdin" data-pg="stdin-text" rows="4" placeholder={copy.output.stdinPlaceholder} aria-label={copy.output.stdinTitle} disabled></textarea>
+  </div>
+
+  <div class="pg-popover pg-more" id="pg-more" role="menu" aria-label={copy.toolbar.more} data-pg="more-menu" hidden>
+    <button type="button" role="menuitem" data-more="problems">{copy.toolbar.tabs.problems}</button>
+    <button type="button" role="menuitem" data-more="inspect">{copy.toolbar.tabs.inspect}</button>
+    <button type="button" role="menuitem" data-more="download">{copy.toolbar.download}</button>
+    <button type="button" role="menuitem" data-more="toolchain">{copy.pipeline.panelTitle}</button>
+  </div>
+
+  <div class="pg-toast" role="status" aria-live="polite" data-pg="toast" hidden></div>
+</div>
+
+<script>
+  import { startPlayground } from "./app";
+  import { part } from "./dom";
+
+  startPlayground(part(document, "app"));
+</script>

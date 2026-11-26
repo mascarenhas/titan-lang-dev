@@ -1,0 +1,68 @@
+local async = import "async"
+local io = import "io"
+local strings = import "string"
+local timer = import "timer"
+
+--- Spawn a concurrent Task that sleeps, reports on a channel, and returns a summary.
+local function start_probe(
+  name: string,
+  delay_ms: integer,
+  send: function (string): ()
+): async.Task<|string, value|>
+  return async.run<|string, value|>(function (): string
+    timer.sleep(delay_ms)
+    send(strings.format("[%3d ms] %-12s sample ready", delay_ms, name))
+    return name .. ":ok"
+  end)
+end
+
+function main(_args: {string}): integer
+  local send, receive, close_channel = async.channel<|string|>(8)
+  defer close_channel()
+
+  -- Background ticker runs cooperatively alongside the probe Tasks.
+  local ticks = 0
+  local heartbeat = async.run<|integer, value|>(function (): integer
+    local ticker = timer.ticker(75)
+    defer ticker:close()
+    while ticker:tick() do
+      ticks = ticks + 1
+      io.print(strings.format("[tick %d] scheduler alive", ticks))
+    end
+    return ticks
+  end)
+
+  -- Drain progress messages from the bounded channel until three probes report.
+  local logger = async.run<|nil, value|>(function (): nil
+    for _ = 1, 3 do
+      io.print(receive())
+    end
+    return nil
+  end)
+
+  local radar = start_probe("radar", 90, send)
+  local lidar = start_probe("lidar", 150, send)
+  local spectro = start_probe("spectrometer", 210, send)
+
+  local r1, r2, r3 = async.all_three(radar, lidar, spectro)
+  async.join(logger)
+
+  -- Cancel the recurring ticker explicitly and observe its terminal status.
+  heartbeat:cancel(async.CancellationReason.simple("all probes complete"))
+  local status = async.join(heartbeat)
+
+  io.print("")
+  io.print("Joined results: " .. r1 .. ", " .. r2 .. ", " .. r3)
+  case status
+  when cancelled(reason) then
+    case reason
+    when simple(message) then
+      io.print("Heartbeat stopped cleanly (" .. message .. ", " .. ticks .. " ticks)")
+    else
+      io.print("Heartbeat stopped cleanly")
+    end
+  else
+    io.print("Heartbeat finished after " .. ticks .. " ticks")
+  end
+  return 0
+end

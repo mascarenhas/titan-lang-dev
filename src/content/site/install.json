@@ -58,8 +58,8 @@
       },
       {
         "num": "02",
-        "label": "Clone Titan v0.6.1",
-        "commands": "git clone --branch v0.6.1 --recurse-submodules \\\n  https://github.com/mascarenhas/titan.git\ncd titan"
+        "label": "Clone Titan {{titan.ref}}",
+        "commands": "git clone --branch {{titan.ref}} --recurse-submodules \\\n  https://github.com/mascarenhas/titan.git\ncd titan"
       },
       {
         "num": "03",

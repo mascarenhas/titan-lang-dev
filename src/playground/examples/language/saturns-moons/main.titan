@@ -1,0 +1,43 @@
+local io = import "io"
+local moons = import "moons"
+local strings = import "string"
+
+--- Mission phase of an outer-planet spacecraft.
+union Probe
+  orbiting(target: string, year: integer)
+  flyby(target: string)
+  landed(target: string, site: string)
+end
+
+local function Probe:describe(): string
+  case self
+  when orbiting { target, year } then
+    return "orbiting " .. target .. " since " .. year
+  when flyby(target) then
+    return "flew past " .. target
+  when landed { target, site } then
+    return "landed on " .. target .. " at " .. site
+  end
+end
+
+function main(_args: {string}): integer
+  local system = moons.saturnian()
+  io.print("Moon        Radius       Period")
+  io.print("-------------------------------")
+  for i = 1, #system do
+    local moon = system[i]
+    io.print(strings.format(
+      "%-10s %7.1f km %8.1f h",
+      moon.name, moon.radius_km, moon:period_hours()
+    ))
+  end
+
+  local missions: {Probe} = {
+    Probe.orbiting { target = "Saturn", year = 2004 },
+    Probe.landed { target = "Titan", site = "Adiri" },
+  }
+  io.print("")
+  io.print("Cassini: " .. missions[1]:describe())
+  io.print("Huygens: " .. missions[2]:describe())
+  return 0
+end

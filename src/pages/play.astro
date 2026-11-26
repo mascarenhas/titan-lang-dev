@@ -1,0 +1,24 @@
+---
+import BaseLayout from "@titan-lang/cassini/layouts/BaseLayout.astro";
+import { copy } from "../playground/content/copy";
+import Playground from "../playground/ui/Playground.astro";
+import { SITE } from "../site.config.mjs";
+---
+
+<BaseLayout
+  title={`${copy.landing.title} — ${SITE.brandName}`}
+  description={copy.landing.body}
+  brandName={SITE.brandName}
+  projectLabel={SITE.projectLabel}
+  logoSrc={SITE.logoSrc}
+  versionBadge={SITE.versionBadge}
+  navLinks={SITE.navLinks}
+  githubUrl={SITE.githubUrl}
+  siteUrl={SITE.siteUrl}
+  siteLabel={SITE.siteLabel}
+  licenseUrl={SITE.licenseUrl}
+  searchPlaceholder={SITE.searchPlaceholder}
+  footer={false}
+>
+  <Playground version={SITE.version} />
+</BaseLayout>

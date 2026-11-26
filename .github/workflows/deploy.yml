@@ -23,11 +23,307 @@ env:
   PYPDF_VERSION: "7.1.1"
   CF_MAX_ASSET_BYTES: "26214400"
   CF_MAX_ASSET_FILES: "20000"
+  # Playground assets: the committed pointer names one content-hashed version that
+  # must be live at https://cdn.titan-lang.dev/playground/<hash>/ before the site ships.
+  PLAYGROUND_POINTER: public/play/playground-assets.json
+  R2_BUCKET: titan-lang-cdn
+  TITAN_NODE_VERSION: "26.13.0"
+  # The only Titan repository a playground version may be built from.
+  TITAN_REPO: mascarenhas/titan
+  # Chrome for Testing headless shell, the JSPI browser scripts/verify-examples.mjs drives.
+  # CfT publishes no .sha256 sidecar, so the ZIP digest is pinned here.
+  CHROME_VERSION: "156.0.8078.80"
+  CHROME_SHA256: "547dcd374e02961bf998f6046a267644f8502225c36bb78ca307dab32a0b3eb4"
+  # Toolchains for rebuilding a playground version (same pins as mascarenhas/titan CI).
+  WASI_SDK_VERSION: "34.0"
+  WASI_SDK_SHA256: "b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4"
+  BINARYEN_VERSION: "133"
+  BINARYEN_SHA256: "2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489"
+  # scripts/build-wasm-opt.sh refuses any other Emscripten: the manifest hashes wasm-opt's bytes.
+  EMSDK_VERSION: "6.0.13"
 
 jobs:
+  # Verifies the pinned playground version straight from the CDN (no secrets, so fork PRs
+  # run it too), then compiles, links and runs every gallery example against those bytes.
+  playground-assets:
+    name: Playground assets (CDN version + examples)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      live: ${{ steps.live.outputs.live }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - &setup-node-26
+        name: Setup Node.js 26 (JSPI)
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.TITAN_NODE_VERSION }}
+          cache: "npm"
+
+      - name: Check the R2 uploader against a fake bucket (no network)
+        run: node scripts/upload-r2.check.mjs
+
+      # The pointer must come from the Titan commit sources.json pins, whatever the CDN holds.
+      - &pin-titan
+        name: Read the pinned Titan revision
+        run: |
+          set -euo pipefail
+          repo="$(jq -er .titan.repo sources.json)"
+          sha="$(jq -er .titan.sha sources.json)"
+          if [ "$repo" != "$TITAN_REPO" ]; then
+            echo "::error::sources.json pins $repo; playground versions are built only from $TITAN_REPO."
+            exit 1
+          fi
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::sources.json titan.sha must be a full commit ID, got '$sha'."
+            exit 1
+          fi
+          echo "TITAN_SHA=$sha" >> "$GITHUB_ENV"
+
+      - name: Verify the pinned version on the CDN
+        id: live
+        env:
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -uo pipefail
+          status=0
+          node scripts/upload-r2.mjs --verify-live --manifest "$PLAYGROUND_POINTER" --titan-revision "$TITAN_SHA" \
+            --download "$RUNNER_TEMP/playground" || status=$?
+          case "$status" in
+            0)
+              echo "live=true" >> "$GITHUB_OUTPUT"
+              echo "PLAYGROUND_VERIFY=true" >> "$GITHUB_ENV"
+              ;;
+            3)
+              echo "live=false" >> "$GITHUB_OUTPUT"
+              if [ "$IS_FORK_PR" = "true" ]; then
+                echo "::error::$PLAYGROUND_POINTER names a playground version that is not on the CDN; fork PRs cannot publish it. Ask a maintainer to publish it first."
+                exit 1
+              fi
+              echo "::notice::Playground version not published yet; the playground-publish job rebuilds and uploads it."
+              ;;
+            *) exit "$status" ;;
+          esac
+
+      - name: Install dependencies
+        if: env.PLAYGROUND_VERIFY == 'true'
+        run: npm ci
+
+      # Shared with playground-publish, which sets PLAYGROUND_VERIFY for the whole job.
+      - &restore-chrome
+        name: Restore Chrome for Testing headless shell
+        if: env.PLAYGROUND_VERIFY == 'true'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/playground-toolchain/chrome
+          key: chrome-headless-shell-${{ env.CHROME_VERSION }}-${{ env.CHROME_SHA256 }}-linux64
+
+      - &install-chrome
+        name: Install Chrome for Testing headless shell
+        if: env.PLAYGROUND_VERIFY == 'true'
+        run: |
+          set -euo pipefail
+          root="$HOME/.cache/playground-toolchain/chrome"
+          chrome="$root/chrome-headless-shell-linux64/chrome-headless-shell"
+          if [ ! -x "$chrome" ]; then
+            archive="$RUNNER_TEMP/chrome-headless-shell.zip"
+            curl -fsSL -o "$archive" \
+              "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-headless-shell-linux64.zip"
+            echo "$CHROME_SHA256  $archive" | sha256sum -c --strict -
+            rm -rf "$root"
+            mkdir -p "$root"
+            unzip -q "$archive" -d "$root"
+            rm -f "$archive"
+          fi
+          if ldd "$chrome" | grep -q "not found"; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends \
+              libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 \
+              libatspi2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 \
+              libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+              libpango-1.0-0 libcairo2 libasound2t64 libxshmfence1 \
+              fonts-liberation
+          fi
+          if ldd "$chrome" | grep "not found"; then
+            echo "::error::Chrome for Testing runtime libraries are missing"
+            exit 1
+          fi
+          # Ubuntu restricts unprivileged user namespaces, which Chrome's sandbox needs.
+          key=kernel.apparmor_restrict_unprivileged_userns
+          if [ "$(sysctl -n "$key" 2>/dev/null || echo 0)" != "0" ]; then
+            sudo sysctl -w "$key=0"
+          fi
+          echo "TITAN_CHROME=$chrome" >> "$GITHUB_ENV"
+          "$chrome" --version
+
+      - name: Compile, link and run every playground example
+        if: env.PLAYGROUND_VERIFY == 'true'
+        run: node scripts/verify-examples.mjs --assets "$RUNNER_TEMP/playground" --chrome "$TITAN_CHROME"
+
+  # Rebuilds the pointer's version from sources.json's Titan revision when it is not on
+  # the CDN yet, requires the rebuild to reproduce the committed hash, verifies every
+  # example against the staged bytes, and uploads it. Never runs for fork PRs.
+  playground-publish:
+    name: Playground assets (rebuild + publish to R2)
+    needs: playground-assets
+    if: needs.playground-assets.outputs.live == 'false' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    env:
+      TITAN_BUILD_PROFILE: validation
+      PLAYGROUND_VERIFY: "true"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - *pin-titan
+
+      - name: Checkout Titan at the pinned revision
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.TITAN_REPO }}
+          ref: ${{ env.TITAN_SHA }}
+          path: .titan-src
+          submodules: true
+          persist-credentials: false
+
+      - name: Free disk space for the Titan build
+        run: |
+          if [[ -d /usr/local/lib/android/sdk && ! -L /usr/local/lib/android/sdk ]]; then
+            sudo rm -rf -- /usr/local/lib/android/sdk
+          fi
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Install build packages
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libreadline-dev ninja-build
+
+      - *setup-node-26
+
+      - name: Restore wasi-sdk and Binaryen
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/playground-toolchain/wasi-sdk
+            ~/.cache/playground-toolchain/binaryen
+          key: wasi-sdk-${{ env.WASI_SDK_VERSION }}-${{ env.WASI_SDK_SHA256 }}-binaryen-${{ env.BINARYEN_VERSION }}-${{ env.BINARYEN_SHA256 }}-x86_64-linux
+
+      - name: Install wasi-sdk and Binaryen
+        run: |
+          set -euo pipefail
+          wasi="$HOME/.cache/playground-toolchain/wasi-sdk"
+          binaryen="$HOME/.cache/playground-toolchain/binaryen"
+          if [ ! -x "$wasi/bin/clang" ]; then
+            archive="$RUNNER_TEMP/wasi-sdk.tar.gz"
+            curl -fsSL -o "$archive" \
+              "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION%%.*}/wasi-sdk-${WASI_SDK_VERSION}-x86_64-linux.tar.gz"
+            echo "$WASI_SDK_SHA256  $archive" | sha256sum -c --strict -
+            rm -rf "$wasi" && mkdir -p "$wasi"
+            tar -xzf "$archive" -C "$wasi" --strip-components=1
+            rm -f "$archive"
+          fi
+          if [ ! -x "$binaryen/bin/wasm-opt" ]; then
+            archive="$RUNNER_TEMP/binaryen.tar.gz"
+            curl -fsSL -o "$archive" \
+              "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+            echo "$BINARYEN_SHA256  $archive" | sha256sum -c --strict -
+            rm -rf "$binaryen" && mkdir -p "$binaryen"
+            tar -xzf "$archive" -C "$binaryen" --strip-components=1 "binaryen-version_${BINARYEN_VERSION}/bin/wasm-opt"
+            rm -f "$archive"
+          fi
+          test "$(head -n 1 "$wasi/VERSION")" = "$WASI_SDK_VERSION"
+          test "$("$binaryen/bin/wasm-opt" --version)" = "wasm-opt version $BINARYEN_VERSION (version_$BINARYEN_VERSION)"
+          {
+            echo "WASI_SDK_PATH=$wasi"
+            echo "BINARYEN_ROOT=$binaryen"
+            echo "TITAN_NODE=$(command -v node)"
+          } >> "$GITHUB_ENV"
+
+      - name: Build the Titan playground SDK bundle
+        working-directory: .titan-src
+        run: |
+          set -euo pipefail
+          prefix="$RUNNER_TEMP/titan-prefix"
+          out="$RUNNER_TEMP/titan-bundle"
+          export PATH="$prefix/bin:$PATH"
+          unset LUA_PATH LUA_CPATH LUA_PATH_5_5 LUA_CPATH_5_5 LUA_INIT LUA_INIT_5_5 \
+            ROCKS_TREE TITAN_ROOT TITANC TITAN_PATH TITAN_PATH_0_6 TITAN_TARGET
+          make lua luarocks PREFIX="$prefix"
+          "$prefix/bin/luarocks" make --force
+          make lua-browser PREFIX="$prefix"
+          make browser-sdk PREFIX="$prefix"
+          make playground-sdk PREFIX="$prefix" PLAYGROUND_OUT="$out"
+          echo "TITAN_BUNDLE=$out" >> "$GITHUB_ENV"
+
+      - name: Restore browser wasm-opt build
+        id: cache_wasm_opt
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/playground-toolchain/wasm-opt
+          key: wasm-opt-${{ hashFiles('scripts/build-wasm-opt.sh') }}-emsdk-${{ env.EMSDK_VERSION }}
+
+      - name: Build browser wasm-opt with Emscripten
+        if: steps.cache_wasm_opt.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          emsdk="$RUNNER_TEMP/emsdk"
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$emsdk"
+          "$emsdk/emsdk" install "$EMSDK_VERSION"
+          "$emsdk/emsdk" activate "$EMSDK_VERSION"
+          EMSDK="$emsdk" JOBS="$(nproc)" scripts/build-wasm-opt.sh \
+            "$RUNNER_TEMP/wasm-opt-build" "$HOME/.cache/playground-toolchain/wasm-opt"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Stage the playground version and check it reproduces the pointer
+        run: |
+          set -euo pipefail
+          staged="$RUNNER_TEMP/playground"
+          node scripts/build-playground-assets.mjs \
+            --titan-bundle "$TITAN_BUNDLE" \
+            --titan-revision "$TITAN_SHA" \
+            --wasm-opt "$HOME/.cache/playground-toolchain/wasm-opt" \
+            --wasi-sdk "$WASI_SDK_PATH" \
+            --out "$staged"
+          if ! cmp -s "$staged/playground-assets.json" "$PLAYGROUND_POINTER"; then
+            {
+              echo "### Playground rebuild does not reproduce \`$PLAYGROUND_POINTER\`"
+              echo "The committed pointer must be the manifest this rebuild produced:"
+              echo '```json'
+              cat "$staged/playground-assets.json"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Rebuilt playground manifest differs from $PLAYGROUND_POINTER (see the job summary)."
+            exit 1
+          fi
+
+      - *restore-chrome
+      - *install-chrome
+
+      - name: Compile, link and run every playground example
+        run: node scripts/verify-examples.mjs --assets "$RUNNER_TEMP/playground" --chrome "$TITAN_CHROME"
+
+      - name: Upload the version to R2 (assets first, manifest last)
+        env:
+          R2_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: node scripts/upload-r2.mjs --dir "$RUNNER_TEMP/playground"
+
+      - name: Verify the published version on the CDN
+        run: node scripts/upload-r2.mjs --verify-live --manifest "$PLAYGROUND_POINTER" --titan-revision "$TITAN_SHA"
+
   preview:
     name: PR Build, Verify & Preview
-    if: github.event_name == 'pull_request'
+    needs: [playground-assets, playground-publish]
+    # The playground version must be verified (and, if new, published) before a preview ships.
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.playground-assets.result == 'success' && (needs.playground-publish.result == 'success' || needs.playground-publish.result == 'skipped') }}
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -210,7 +506,8 @@ jobs:
 
   production:
     name: Production Deploy
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    needs: [playground-assets, playground-publish]
+    if: ${{ !cancelled() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.playground-assets.result == 'success' && (needs.playground-publish.result == 'success' || needs.playground-publish.result == 'skipped') }}
     runs-on: ubuntu-26.04
     permissions:
       contents: read

@@ -10,7 +10,7 @@ export const cassiniDarkTheme = {
   colors: {
     "editor.background": "#0b0e0a",
     "editor.foreground": "#ddd7c6",
-    "editorLineNumber.foreground": "#7b7764",
+    "editorLineNumber.foreground": "#858170",
     "editor.selectionBackground": "#e2d89826",
   },
   tokenColors: [

@@ -1,0 +1,81 @@
+local io = import "io"
+local json = import "json"
+local reflect = import "reflect"
+local strings = import "string"
+
+--- Planetary coordinates encoded directly as a JSON object.
+record Coordinate
+  const lat_deg: float
+  const lon_deg: float
+end
+
+--- Tagged union serialized with a configurable discriminator field.
+union Finding
+  ice_plume(height_km: float)
+  methane_lake(area_km2: float)
+  clear_sky()
+end
+
+--- Typed science observation round-tripped through `titan.json` and `titan.reflect`.
+record Observation
+  const target: string
+  const site: Coordinate
+  const finding: Finding
+  const note: string?
+end
+
+local function describe_finding(finding: Finding): string
+  case finding
+  when ice_plume(height_km) then
+    return strings.format("cryovolcanic plume (%.0f km high)", height_km)
+  when methane_lake(area_km2) then
+    return strings.format("liquid methane lake (%.0f km^2)", area_km2)
+  when clear_sky() then
+    return "clear haze-free sky"
+  end
+end
+
+function main(_args: {string}): integer
+  local original = Observation(
+    "Titan",
+    Coordinate(68.0, 310.0),
+    Finding.methane_lake(400000.0),
+    "Kraken Mare north basin"
+  )
+
+  local encoded = json.encode(original, json.EncodeOption.tag_field("kind"))
+  io.print("Encoded JSON:")
+  io.print("  " .. encoded)
+
+  -- Decode into the nominal Titan schema using runtime reflection.
+  local schema = reflect.Type.is_named(reflect.NamedType("main.Observation"))
+  local decoded: Observation = json.decode(
+    encoded,
+    schema,
+    json.DecodeOption.tag_field("kind")
+  )
+
+  io.print("")
+  io.print("Decoded record:")
+  io.print(strings.format("  target:  %s (%.1f deg, %.1f deg)",
+    decoded.target, decoded.site.lat_deg, decoded.site.lon_deg))
+  io.print("  finding: " .. describe_finding(decoded.finding))
+  io.print("  note:    " .. (decoded.note or "(none)"))
+
+  local reencoded = json.encode(decoded, json.EncodeOption.tag_field("kind"))
+  io.print("  exact round-trip match: " .. strings.tostring(reencoded == encoded))
+
+  -- Schema errors raise structured `json.Error` values with exact paths.
+  io.print("")
+  io.print("Schema validation on malformed payload:")
+  do
+    local bad = [[{"target":"Enceladus","site":{"lat_deg":-82.0,"lon_deg":"north"},"finding":{"kind":"clear_sky"}}]]
+    local _: Observation = json.decode(bad, schema, json.DecodeOption.tag_field("kind"))
+  catch
+    if not (error is json.Error) then raise end
+    local failure: json.Error = error
+    io.print(strings.format("  code=%s path=%s message=%s",
+      failure.code, failure.path, failure.message))
+  end
+  return 0
+end

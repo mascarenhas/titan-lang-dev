@@ -37,7 +37,6 @@ const result = await buildTitanBookPdf({
   copyrightNotice: "Copyright (c) 2017 The Titan Project Developers",
   keywords: ["Titan", "Lua", "Programming Language", "Manual"],
   edition: `Version ${sources.titan.version}`,
-  editionNote: `Titan ${sources.titan.version} (50 Chapters + Effective Titan Style Guide).`,
   sourceNote: "Generated from doc/language/ and doc/style-guide.md.",
   prefaceTitle: "About Titan",
   prefaceKicker: "Preface",

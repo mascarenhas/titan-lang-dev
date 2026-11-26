@@ -1,9 +1,9 @@
 {
   "titan": {
     "repo": "mascarenhas/titan",
-    "ref": "v0.6.1",
-    "sha": "704d481451661d87b1ddcd72638cac8db37718f5",
-    "version": "0.6.1",
+    "ref": "v0.6.2",
+    "sha": "c9f8322c2da44bb13fa3bae7686cf16db3e12253",
+    "version": "0.6.2",
     "paths": [
       "doc/language",
       "doc/style-guide.md",

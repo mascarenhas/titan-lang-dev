@@ -1,0 +1,83 @@
+local io = import "io"
+local strings = import "string"
+
+--- Structured error carrying a machine-readable code and frame number.
+record TelemetryError
+  const code: string
+  const frame: integer
+  const detail: string
+end
+
+--- Simulated stream handle used to demonstrate deterministic `defer` cleanup.
+record Link
+  const name: string
+  open: boolean
+end
+
+local function Link:close()
+  if self.open then
+    self.open = false
+    io.print("[defer] closed link " .. self.name)
+  end
+end
+
+local function decode_frame(frame: integer, altitude_km: float): string
+  if altitude_km < 0.0 then
+    raise TelemetryError(
+      "BAD_ALTITUDE",
+      frame,
+      strings.format("altitude %.1f km is below surface", altitude_km)
+    )
+  end
+  return strings.format("frame #%d: altitude %.1f km", frame, altitude_km)
+end
+
+--- Read one frame, closing the link via `defer` even if decoding raises.
+local function read_safely(frame: integer, altitude_km: float): string
+  local link = Link("downlink-" .. frame, true)
+  defer link:close()
+  return decode_frame(frame, altitude_km)
+catch
+  if error is TelemetryError then
+    local err: TelemetryError = error
+    io.print(strings.format("[catch] %s on frame #%d: %s",
+      err.code, err.frame, err.detail))
+    return "recovered with fallback altitude"
+  end
+  -- Re-raise unexpected errors while preserving their original stack trace.
+  raise
+end
+
+local function verify_altitude(frame: integer, altitude_km: float): float
+  if altitude_km < 0.0 then
+    raise strings.format(
+      "frame #%d: altitude %.1f km is below Titan's surface",
+      frame, altitude_km
+    )
+  end
+  return altitude_km
+end
+
+local function analyze_pass(frame: integer, altitude_km: float): string
+  local checked = verify_altitude(frame, altitude_km)
+  return strings.format("verified %.1f km", checked)
+end
+
+-- Set to false to exit cleanly after the handled recovery above.
+local const SHOW_UNCAUGHT_TRACE = true
+
+function main(_args: {string}): integer
+  io.print("1. Valid frame:")
+  io.print("   " .. read_safely(16, 127.4))
+
+  io.print("")
+  io.print("2. Invalid frame (defer runs before catch recovers):")
+  io.print("   " .. read_safely(17, -3.2))
+
+  if SHOW_UNCAUGHT_TRACE then
+    io.print("")
+    io.print("3. Uncaught error (click any main.titan:line frame below):")
+    io.print(analyze_pass(42, -12.5))
+  end
+  return 0
+end

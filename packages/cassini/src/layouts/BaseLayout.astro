@@ -19,6 +19,8 @@ export interface Props {
   licenseUrl?: string;
   searchPlaceholder?: string;
   hasSidebar?: boolean;
+  /** Full-height application pages (the playground) omit the site footer. */
+  footer?: boolean;
 }
 
 const {
@@ -35,6 +37,7 @@ const {
   licenseUrl = "https://github.com/mascarenhas/titan/blob/master/LICENSE",
   searchPlaceholder = "Search documentation...",
   hasSidebar = false,
+  footer = true,
 } = Astro.props;
 
 const canonicalUrl = new URL(Astro.url.pathname, Astro.site || siteUrl).toString();
@@ -87,12 +90,14 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site || siteUrl).toString
       hasSidebar={hasSidebar}
     />
     <slot />
-    <Footer
-      projectLabel={projectLabel}
-      licenseUrl={licenseUrl}
-      siteUrl={siteUrl}
-      siteLabel={siteLabel}
-    />
+    {footer && (
+      <Footer
+        projectLabel={projectLabel}
+        licenseUrl={licenseUrl}
+        siteUrl={siteUrl}
+        siteLabel={siteLabel}
+      />
+    )}
     <SearchModal placeholder={searchPlaceholder} />
   </body>
 </html>

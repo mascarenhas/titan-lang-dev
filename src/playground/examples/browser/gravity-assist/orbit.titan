@@ -1,0 +1,271 @@
+-- 3D two-body + spacecraft orbital mechanics for the Gravity Assist Simulator.
+-- Integrates Cassini moving through Saturn's and Titan's combined gravity with
+-- a symplectic Velocity Verlet solver, real delta-v accounting, and 3D gates.
+
+local math = import "math"
+local string = import "string"
+
+const MU_SATURN: float = 100.0
+const MU_TITAN: float = 5.5
+const TITAN_ORBIT_R: float = 10.0
+const TITAN_OMEGA: float = 0.31622776601683794 -- sqrt(MU_SATURN / TITAN_ORBIT_R^3)
+const TITAN_SOFT2: float = 0.06
+const SATURN_BODY_R: float = 1.85
+const TITAN_BODY_R: float = 0.55
+const RING_INNER_R: float = 2.3
+const RING_OUTER_R: float = 4.7
+const LAUNCH_R: float = 5.2
+const GATE_RADIUS: float = 1.55
+const ESCAPE_R: float = 26.0
+const BURN_ACC: float = 2.6
+const FUEL_BURN_RATE: float = 28.0
+const SUBSTEPS: integer = 8
+
+record Vec3
+  x: float
+  y: float
+  z: float
+end
+
+function Vec3:length(): float
+  return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
+end
+
+function Vec3:distance(other: Vec3): float
+  local dx = self.x - other.x
+  local dy = self.y - other.y
+  local dz = self.z - other.z
+  return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+record MissionPlan
+  const name: string
+  const goal_label: string
+  angle_deg: float
+  speed: float
+  pitch_deg: float
+  titan_phase_deg: float
+  const gate: Vec3
+end
+
+union MissionPhase
+  planning()
+  flying(min_titan: float, assist_logged: boolean, ring_crossed: boolean)
+  intercept(dv_gain: float, fuel_left: float, score: integer)
+  captured(body: string)
+  escaped(dv_gain: float)
+end
+
+record Controls
+  prograde: boolean
+  retrograde: boolean
+  normal_up: boolean
+  normal_down: boolean
+  launch: boolean
+  reset: boolean
+  preset: integer
+  angle_deg: float
+  speed: float
+  pitch_deg: float
+  titan_phase_deg: float
+  sliders_dirty: boolean
+end
+
+record Craft
+  pos: Vec3
+  vel: Vec3
+  acc: Vec3
+  time: float
+  fuel: float
+  launch_speed: float
+  dv_gain: float
+  titan_dist: float
+  saturn_dist: float
+  burning: integer
+  phase: MissionPhase
+end
+
+-- Three calibrated Cassini-Huygens missions:
+--   1. Classic trailing Titan flyby (+1.68 dv boost) -> outer deep-space gate
+--   2. 18-deg 3D inclined slingshot (+1.03 dv boost) -> south polar gate
+--   3. Leading-side Titan gravity brake (-0.60 dv)   -> Cassini Division ring gate
+function make_preset(index: integer): MissionPlan
+  if index == 2 then
+    return MissionPlan {
+      name = "3D Polar Slingshot", goal_label = "South Polar Beacon",
+      angle_deg = -5.0, speed = 5.15, pitch_deg = 18.0, titan_phase_deg = 75.0,
+      gate = Vec3(-12.43, -7.86, -9.49),
+    }
+  elseif index == 3 then
+    return MissionPlan {
+      name = "Ring-Dive Gravity Brake", goal_label = "Cassini Division Gate",
+      angle_deg = 5.0, speed = 5.60, pitch_deg = -5.0, titan_phase_deg = 35.0,
+      gate = Vec3(-1.41, 0.0, -3.37),
+    }
+  end
+  return MissionPlan {
+    name = "Titan Slingshot", goal_label = "Outer System Gate",
+    angle_deg = 0.0, speed = 5.10, pitch_deg = 4.0, titan_phase_deg = 70.0,
+    gate = Vec3(-17.41, -1.77, -0.40),
+  }
+end
+
+function titan_position(t: float, phase_deg: float): Vec3
+  local theta = math.rad(phase_deg) + TITAN_OMEGA * t
+  return Vec3(TITAN_ORBIT_R * math.cos(theta), 0.0, TITAN_ORBIT_R * math.sin(theta))
+end
+
+function gravity_accel(pos: Vec3, t: float, phase_deg: float): (Vec3, float, float)
+  local r2 = pos.x * pos.x + pos.y * pos.y + pos.z * pos.z + 1e-6
+  local r_saturn = math.sqrt(r2)
+  local inv_r3 = -MU_SATURN / (r2 * r_saturn)
+
+  local titan = titan_position(t, phase_deg)
+  local dx = pos.x - titan.x
+  local dy = pos.y - titan.y
+  local dz = pos.z - titan.z
+  local d2_raw = dx * dx + dy * dy + dz * dz
+  local d2 = d2_raw + TITAN_SOFT2
+  local inv_d3 = -MU_TITAN / (d2 * math.sqrt(d2))
+
+  return Vec3(pos.x * inv_r3 + dx * inv_d3, pos.y * inv_r3 + dy * inv_d3,
+    pos.z * inv_r3 + dz * inv_d3), math.sqrt(d2_raw), r_saturn
+end
+
+local function launch_velocity(plan: MissionPlan): Vec3
+  local ang = math.rad(plan.angle_deg)
+  local pitch = math.rad(plan.pitch_deg)
+  local horiz = plan.speed * math.cos(pitch)
+  return Vec3(horiz * math.sin(ang), plan.speed * math.sin(pitch), horiz * math.cos(ang))
+end
+
+function Craft.from_plan(plan: MissionPlan, start_flying: boolean): Craft
+  local pos = Vec3(LAUNCH_R, 0.0, 0.0)
+  local acc, d_titan, r_saturn = gravity_accel(pos, 0.0, plan.titan_phase_deg)
+  local phase = start_flying and MissionPhase.flying(d_titan, false, false) or MissionPhase.planning()
+  return Craft {
+    pos = pos, vel = launch_velocity(plan), acc = acc, time = 0.0, fuel = 100.0,
+    launch_speed = plan.speed, dv_gain = 0.0, titan_dist = d_titan,
+    saturn_dist = r_saturn, burning = 0, phase = phase,
+  }
+end
+
+function Craft:specific_energy(): float
+  local v2 = self.vel.x * self.vel.x + self.vel.y * self.vel.y + self.vel.z * self.vel.z
+  return 0.5 * v2 - MU_SATURN / math.max(self.saturn_dist, 0.1)
+end
+
+local function Craft:thrust_accel(ctrl: Controls, dt: float): Vec3
+  self.burning = 0
+  if self.fuel <= 0.0 then return Vec3(0.0, 0.0, 0.0) end
+  local tx = 0.0
+  local ty = 0.0
+  local tz = 0.0
+  local spd = math.max(self.vel:length(), 0.001)
+  if ctrl.prograde then
+    tx = (self.vel.x / spd) * BURN_ACC; ty = (self.vel.y / spd) * BURN_ACC
+    tz = (self.vel.z / spd) * BURN_ACC; self.burning = 1
+  elseif ctrl.retrograde then
+    tx = -(self.vel.x / spd) * BURN_ACC; ty = -(self.vel.y / spd) * BURN_ACC
+    tz = -(self.vel.z / spd) * BURN_ACC; self.burning = -1
+  end
+  if ctrl.normal_up then ty = ty + BURN_ACC; if self.burning == 0 then self.burning = 2 end
+  elseif ctrl.normal_down then ty = ty - BURN_ACC; if self.burning == 0 then self.burning = -2 end end
+  if self.burning ~= 0 then self.fuel = math.max(0.0, self.fuel - FUEL_BURN_RATE * dt) end
+  return Vec3(tx, ty, tz)
+end
+
+-- Advance one frame using 8 symplectic Velocity Verlet substeps.
+function Craft:step(dt: float, plan: MissionPlan, ctrl: Controls): string?
+  local min_titan = 999.0
+  local assist_logged = false
+  local ring_crossed = false
+  case self.phase
+  when flying(mt, al, rc) then min_titan = mt; assist_logged = al; ring_crossed = rc
+  else self.burning = 0; return nil
+  end
+
+  local sub_dt = dt / SUBSTEPS
+  local event: string? = nil
+
+  for _ = 1, SUBSTEPS do
+    local thrust = self:thrust_accel(ctrl, sub_dt)
+    local vxh = self.vel.x + 0.5 * sub_dt * (self.acc.x + thrust.x)
+    local vyh = self.vel.y + 0.5 * sub_dt * (self.acc.y + thrust.y)
+    local vzh = self.vel.z + 0.5 * sub_dt * (self.acc.z + thrust.z)
+    local prev_y = self.pos.y
+
+    self.pos = Vec3(self.pos.x + sub_dt * vxh, self.pos.y + sub_dt * vyh, self.pos.z + sub_dt * vzh)
+    self.time = self.time + sub_dt
+    local next_acc, d_titan, r_saturn = gravity_accel(self.pos, self.time, plan.titan_phase_deg)
+    self.acc = next_acc; self.titan_dist = d_titan; self.saturn_dist = r_saturn
+    self.vel = Vec3(vxh + 0.5 * sub_dt * (next_acc.x + thrust.x),
+      vyh + 0.5 * sub_dt * (next_acc.y + thrust.y), vzh + 0.5 * sub_dt * (next_acc.z + thrust.z))
+
+    local inside = 2.0 * (self:specific_energy() + MU_SATURN / LAUNCH_R)
+    self.dv_gain = (inside > 0.0 and math.sqrt(inside) or 0.0) - self.launch_speed
+    if d_titan < min_titan then min_titan = d_titan end
+
+    if not ring_crossed and self.time > 0.25 and prev_y * self.pos.y <= 0.0 then
+      local r_plane = math.sqrt(self.pos.x * self.pos.x + self.pos.z * self.pos.z)
+      if r_plane >= RING_INNER_R and r_plane <= RING_OUTER_R then
+        ring_crossed = true; event = "ring_cross"
+      end
+    end
+    if not assist_logged and min_titan < 2.2 and d_titan > min_titan + 0.35
+       and math.abs(self.dv_gain) > 0.35 then
+      assist_logged = true; event = "assist"
+    end
+
+    if self.pos:distance(plan.gate) <= GATE_RADIUS then
+      local dv_pts: integer = math.floor(math.abs(self.dv_gain) * 400.0)
+      local fuel_pts: integer = math.floor(self.fuel * 4.0)
+      self.burning = 0
+      self.phase = MissionPhase.intercept(self.dv_gain, self.fuel, 500 + dv_pts + fuel_pts)
+      return "intercept"
+    end
+    if r_saturn <= SATURN_BODY_R then
+      self.burning = 0; self.phase = MissionPhase.captured("Saturn"); return "capture"
+    end
+    if d_titan <= TITAN_BODY_R then
+      self.burning = 0; self.phase = MissionPhase.captured("Titan"); return "capture"
+    end
+    if r_saturn >= ESCAPE_R then
+      self.burning = 0; self.phase = MissionPhase.escaped(self.dv_gain); return "escape"
+    end
+  end
+
+  self.phase = MissionPhase.flying(min_titan, assist_logged, ring_crossed)
+  return event
+end
+
+function predict_path(plan: MissionPlan, points: integer): string
+  local pos = Vec3(LAUNCH_R, 0.0, 0.0)
+  local vel = launch_velocity(plan)
+  local acc, _, _ = gravity_accel(pos, 0.0, plan.titan_phase_deg)
+  local t = 0.0
+  local dt = 0.025
+  local out = string.writer()
+  defer out:close()
+
+  out:write(string.format("%.2f,%.2f,%.2f", pos.x, pos.y, pos.z))
+  for _ = 1, points do
+    local broken = false
+    for _ = 1, 4 do
+      local vxh = vel.x + 0.5 * dt * acc.x
+      local vyh = vel.y + 0.5 * dt * acc.y
+      local vzh = vel.z + 0.5 * dt * acc.z
+      pos = Vec3(pos.x + dt * vxh, pos.y + dt * vyh, pos.z + dt * vzh)
+      t = t + dt
+      local next_acc, d_titan, r_saturn = gravity_accel(pos, t, plan.titan_phase_deg)
+      vel = Vec3(vxh + 0.5 * dt * next_acc.x, vyh + 0.5 * dt * next_acc.y, vzh + 0.5 * dt * next_acc.z)
+      acc = next_acc
+      if r_saturn <= SATURN_BODY_R or d_titan <= TITAN_BODY_R or r_saturn >= ESCAPE_R then
+        broken = true; break
+      end
+    end
+    out:write(string.format(",%.2f,%.2f,%.2f", pos.x, pos.y, pos.z))
+    if broken then break end
+  end
+  return out:drain()
+end

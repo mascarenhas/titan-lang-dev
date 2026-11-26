@@ -1,0 +1,69 @@
+local http = import "http"
+local io = import "io"
+local json = import "json"
+local os = import "os"
+local reflect = import "reflect"
+local strings = import "string"
+
+--- One moon entry decoded directly from `/play/data/moons.json`.
+record MoonEntry
+  const name: string
+  const radius_km: float
+  const orbital_period_days: float
+  const discovered_year: integer
+  const discoverer: string
+  const atmosphere: string?
+end
+
+--- Top-level catalog schema returned by the static JSON endpoint.
+record MoonCatalog
+  const system: string
+  const source: string
+  const moons: {MoonEntry}
+end
+
+local function fetch_body(endpoint: string): (integer, string, string)
+  local response = http.get(endpoint)
+  defer response:close()
+
+  local buf = strings.writer()
+  defer buf:close()
+  for chunk in response:read do
+    buf:write(chunk)
+  end
+
+  local content_type = response.headers:get("content-type") or "unknown"
+  return response.status, content_type, buf:drain()
+end
+
+function main(_args: {string}): integer
+  local origin = os.getenv("PLAYGROUND_ORIGIN") or "https://titan-lang.dev"
+  local endpoint = origin .. "/play/data/moons.json"
+
+  local status, content_type, body = fetch_body(endpoint)
+  io.print(strings.format("GET %s -> %d (%s, %d bytes)",
+    endpoint, status, content_type, #body))
+  if status ~= 200 then
+    raise strings.format("unexpected HTTP status %d", status)
+  end
+
+  local schema = reflect.Type.is_named(reflect.NamedType("main.MoonCatalog"))
+  local catalog: MoonCatalog = json.decode(body, schema)
+
+  io.print("")
+  io.print(catalog.system .. " — " .. catalog.source)
+  io.print("Moon        Radius      Period   Discovered  Atmosphere")
+  io.print("-----------------------------------------------------------------------")
+  for i = 1, #catalog.moons do
+    local moon = catalog.moons[i]
+    io.print(strings.format(
+      "%-10s %7.1f km %7.3f d   %4d        %s",
+      moon.name,
+      moon.radius_km,
+      moon.orbital_period_days,
+      moon.discovered_year,
+      moon.atmosphere or "-"
+    ))
+  end
+  return 0
+end
